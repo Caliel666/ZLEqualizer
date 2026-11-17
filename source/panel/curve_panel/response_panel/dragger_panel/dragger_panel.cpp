@@ -14,16 +14,22 @@ namespace zlpanel {
     public:
         SplitGainDraggerAttachment(zlgui::dragger::Dragger& dragger,
                                    juce::AudioProcessorValueTreeState& parameters,
-                                   const juce::String& parameter_id,
+                                   const juce::String& gain_parameter_id,
+                                   const juce::String& freq_shift_parameter_id,
                                    std::atomic<float>& base_gain,
+                                   std::atomic<float>& base_frequency,
                                    std::atomic<float>& filter_type,
-                                   const juce::NormalisableRange<float> range,
+                                   const juce::NormalisableRange<float> gain_range,
+                                   const juce::NormalisableRange<float> freq_range,
                                    const float visual_y_offset) :
             dragger_(dragger),
-            parameter_(*parameters.getParameter(parameter_id)),
+            gain_parameter_(*parameters.getParameter(gain_parameter_id)),
+            freq_shift_parameter_(*parameters.getParameter(freq_shift_parameter_id)),
             base_gain_(base_gain),
+            base_frequency_(base_frequency),
             filter_type_(filter_type),
-            range_(range),
+            gain_range_(gain_range),
+            freq_range_(freq_range),
             visual_y_offset_(visual_y_offset) {
             dragger_.addListener(this);
         }
@@ -34,37 +40,53 @@ namespace zlpanel {
 
     private:
         zlgui::dragger::Dragger& dragger_;
-        juce::RangedAudioParameter& parameter_;
+        juce::RangedAudioParameter& gain_parameter_;
+        juce::RangedAudioParameter& freq_shift_parameter_;
         std::atomic<float>& base_gain_;
+        std::atomic<float>& base_frequency_;
         std::atomic<float>& filter_type_;
-        juce::NormalisableRange<float> range_;
+        juce::NormalisableRange<float> gain_range_;
+        juce::NormalisableRange<float> freq_range_;
         float visual_y_offset_{0.f};
 
         void dragStarted(zlgui::dragger::Dragger*) override {
-            parameter_.beginChangeGesture();
+            gain_parameter_.beginChangeGesture();
+            freq_shift_parameter_.beginChangeGesture();
         }
 
         void dragEnded(zlgui::dragger::Dragger*) override {
-            parameter_.endChangeGesture();
+            freq_shift_parameter_.endChangeGesture();
+            gain_parameter_.endChangeGesture();
         }
 
         void draggerValueChanged(zlgui::dragger::Dragger*) override {
             const auto area_height = std::max(dragger_.getButtonArea().getHeight(), 1.f);
-            const auto visual_gain = range_.convertFrom0to1(
+            const auto visual_gain = gain_range_.convertFrom0to1(
                 std::clamp(dragger_.getYPortion(), 0.f, 1.f))
-                + visual_y_offset_ * (range_.end - range_.start) / area_height;
+                + visual_y_offset_ * (gain_range_.end - gain_range_.start) / area_height;
 
             const auto filter_type = static_cast<zldsp::filter::FilterType>(
                 std::round(filter_type_.load(std::memory_order::relaxed)));
-            const auto gain_scale = filter_type == zldsp::filter::kLowShelf
+            const auto gain_factor = filter_type == zldsp::filter::kLowShelf
                 || filter_type == zldsp::filter::kHighShelf
                 || filter_type == zldsp::filter::kTiltShelf
                 || filter_type == zldsp::filter::kFlatTilt ? .5f : 1.f;
-            const auto base_visual_gain = base_gain_.load(std::memory_order::relaxed) * gain_scale;
-            const auto offset = std::clamp((visual_gain - base_visual_gain) / gain_scale,
-                                           zlp::PTransientGain::kRange.start,
-                                           zlp::PTransientGain::kRange.end);
-            parameter_.setValueNotifyingHost(parameter_.convertTo0to1(offset));
+            const auto base_visual_gain = base_gain_.load(std::memory_order::relaxed) * gain_factor;
+            const auto gain_offset = std::clamp((visual_gain - base_visual_gain) / gain_factor,
+                                                zlp::PTransientGain::kRange.start,
+                                                zlp::PTransientGain::kRange.end);
+
+            const auto absolute_frequency = freq_range_.convertFrom0to1(
+                std::clamp(dragger_.getXPortion(), 0.f, 1.f));
+            const auto base_frequency = std::max(base_frequency_.load(std::memory_order::relaxed), 10.f);
+            const auto semitone_offset = std::clamp(
+                12.f * std::log2(std::max(absolute_frequency, 10.f) / base_frequency),
+                zlp::PTransientFreqShift::kRange.start,
+                zlp::PTransientFreqShift::kRange.end);
+
+            gain_parameter_.setValueNotifyingHost(gain_parameter_.convertTo0to1(gain_offset));
+            freq_shift_parameter_.setValueNotifyingHost(
+                freq_shift_parameter_.convertTo0to1(semitone_offset));
         }
     };
     DraggerPanel::DraggerPanel(PluginProcessor& p,
@@ -114,7 +136,7 @@ namespace zlpanel {
         transient_dragger_.setScale(kDraggerScale * kDraggerSizeMultiplier * .86f,
                                     kDraggerScale * kDraggerPaddingMultiplier);
         transient_dragger_.getButton().addMouseListener(this, false);
-        transient_dragger_.setXYEnabled(false, true);
+        transient_dragger_.setXYEnabled(true, true);
         transient_dragger_.getLAF().setDraggerShape(zlgui::dragger::DraggerLookAndFeel::kRound);
         transient_dragger_.getLAF().setLabel("T");
         transient_dragger_.getButton().setTooltip("Transient-only EQ offset. Double-click to reset.");
@@ -123,7 +145,7 @@ namespace zlpanel {
         tone_dragger_.setScale(kDraggerScale * kDraggerSizeMultiplier * .86f,
                                kDraggerScale * kDraggerPaddingMultiplier);
         tone_dragger_.getButton().addMouseListener(this, false);
-        tone_dragger_.setXYEnabled(false, true);
+        tone_dragger_.setXYEnabled(true, true);
         tone_dragger_.getLAF().setDraggerShape(zlgui::dragger::DraggerLookAndFeel::kRound);
         tone_dragger_.getLAF().setLabel("S");
         tone_dragger_.getButton().setTooltip("Tone/sustain-only EQ offset. Double-click to reset.");
@@ -403,16 +425,20 @@ namespace zlpanel {
         transient_dragger_attachment_ = std::make_unique<SplitGainDraggerAttachment>(
             transient_dragger_, p_ref_.parameters_,
             zlp::PTransientGain::kID + std::to_string(band),
+            zlp::PTransientFreqShift::kID + std::to_string(band),
             *p_ref_.parameters_.getRawParameterValue(zlp::PGain::kID + std::to_string(band)),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PFreq::kID + std::to_string(band)),
             *p_ref_.parameters_.getRawParameterValue(zlp::PFilterType::kID + std::to_string(band)),
-            gain_range_, -8.f);
+            gain_range_, freq_range_, -8.f);
         tone_dragger_attachment_.reset();
         tone_dragger_attachment_ = std::make_unique<SplitGainDraggerAttachment>(
             tone_dragger_, p_ref_.parameters_,
             zlp::PToneGain::kID + std::to_string(band),
+            zlp::PToneFreqShift::kID + std::to_string(band),
             *p_ref_.parameters_.getRawParameterValue(zlp::PGain::kID + std::to_string(band)),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PFreq::kID + std::to_string(band)),
             *p_ref_.parameters_.getRawParameterValue(zlp::PFilterType::kID + std::to_string(band)),
-            gain_range_, 8.f);
+            gain_range_, freq_range_, 8.f);
     }
 
     void DraggerPanel::updateTargetAttachment(const size_t band) {
