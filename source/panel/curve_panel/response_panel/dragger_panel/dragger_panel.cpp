@@ -22,6 +22,8 @@ namespace zlpanel {
         draggers_(make_dragger_array(base.gui, std::make_index_sequence<zlp::kBandNum>())),
         target_dragger_(base.gui),
         side_dragger_(base.gui),
+        transient_dragger_(base.gui),
+        tone_dragger_(base.gui),
         float_pop_panel_(p, base, tooltip_helper),
         max_db_id_ref_(*p.parameters_NA_.getRawParameterValue(zlstate::PEQMaxDB::kID)),
         q_slider_(base.gui), slope_slider_(base.gui) {
