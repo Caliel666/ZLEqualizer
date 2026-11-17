@@ -595,6 +595,8 @@ namespace zlp {
         auto tone_paras = filter_paras_[i];
         transient_paras.gain = transient_split_gains_[i].load(std::memory_order::relaxed);
         tone_paras.gain = tone_split_gains_[i].load(std::memory_order::relaxed);
+        transient_split_filters_[i].setScale(c_scales_[i]);
+        tone_split_filters_[i].setScale(c_scales_[i]);
         transient_split_filters_[i].updateParas(transient_paras);
         tone_split_filters_[i].updateParas(tone_paras);
         c_transient_split_on_[i] = std::abs(transient_paras.gain) > 1.0e-5;
