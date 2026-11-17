@@ -10,6 +10,63 @@
 #include "dragger_panel.hpp"
 
 namespace zlpanel {
+    class SplitGainDraggerAttachment final : private zlgui::dragger::Dragger::Listener {
+    public:
+        SplitGainDraggerAttachment(zlgui::dragger::Dragger& dragger,
+                                   juce::AudioProcessorValueTreeState& parameters,
+                                   const juce::String& parameter_id,
+                                   std::atomic<float>& base_gain,
+                                   std::atomic<float>& filter_type,
+                                   const juce::NormalisableRange<float> range,
+                                   const float visual_y_offset) :
+            dragger_(dragger),
+            parameter_(*parameters.getParameter(parameter_id)),
+            base_gain_(base_gain),
+            filter_type_(filter_type),
+            range_(range),
+            visual_y_offset_(visual_y_offset) {
+            dragger_.addListener(this);
+        }
+
+        ~SplitGainDraggerAttachment() override {
+            dragger_.removeListener(this);
+        }
+
+    private:
+        zlgui::dragger::Dragger& dragger_;
+        juce::RangedAudioParameter& parameter_;
+        std::atomic<float>& base_gain_;
+        std::atomic<float>& filter_type_;
+        juce::NormalisableRange<float> range_;
+        float visual_y_offset_{0.f};
+
+        void dragStarted(zlgui::dragger::Dragger*) override {
+            parameter_.beginChangeGesture();
+        }
+
+        void dragEnded(zlgui::dragger::Dragger*) override {
+            parameter_.endChangeGesture();
+        }
+
+        void draggerValueChanged(zlgui::dragger::Dragger*) override {
+            const auto area_height = std::max(dragger_.getButtonArea().getHeight(), 1.f);
+            const auto visual_gain = range_.convertFrom0to1(
+                std::clamp(dragger_.getYPortion(), 0.f, 1.f))
+                + visual_y_offset_ * (range_.end - range_.start) / area_height;
+
+            const auto filter_type = static_cast<zldsp::filter::FilterType>(
+                std::round(filter_type_.load(std::memory_order::relaxed)));
+            const auto gain_scale = filter_type == zldsp::filter::kLowShelf
+                || filter_type == zldsp::filter::kHighShelf
+                || filter_type == zldsp::filter::kTiltShelf
+                || filter_type == zldsp::filter::kFlatTilt ? .5f : 1.f;
+            const auto base_visual_gain = base_gain_.load(std::memory_order::relaxed) * gain_scale;
+            const auto offset = std::clamp((visual_gain - base_visual_gain) / gain_scale,
+                                           zlp::PTransientGain::kRange.start,
+                                           zlp::PTransientGain::kRange.end);
+            parameter_.setValueNotifyingHost(parameter_.convertTo0to1(offset));
+        }
+    };
     DraggerPanel::DraggerPanel(PluginProcessor& p,
                                zlgui::UIState& base,
                                const multilingual::TooltipHelper& tooltip_helper) :
@@ -343,13 +400,19 @@ namespace zlpanel {
             zlp::PGain::kID + std::to_string(band), gain_range_, updater_);
 
         transient_dragger_attachment_.reset();
-        transient_dragger_attachment_ = std::make_unique<zlgui::attachment::DraggerAttachment<false, false>>(
+        transient_dragger_attachment_ = std::make_unique<SplitGainDraggerAttachment>(
             transient_dragger_, p_ref_.parameters_,
-            zlp::PTransientGain::kID + std::to_string(band), gain_range_, updater_);
+            zlp::PTransientGain::kID + std::to_string(band),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PGain::kID + std::to_string(band)),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PFilterType::kID + std::to_string(band)),
+            gain_range_, -8.f);
         tone_dragger_attachment_.reset();
-        tone_dragger_attachment_ = std::make_unique<zlgui::attachment::DraggerAttachment<false, false>>(
+        tone_dragger_attachment_ = std::make_unique<SplitGainDraggerAttachment>(
             tone_dragger_, p_ref_.parameters_,
-            zlp::PToneGain::kID + std::to_string(band), gain_range_, updater_);
+            zlp::PToneGain::kID + std::to_string(band),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PGain::kID + std::to_string(band)),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PFilterType::kID + std::to_string(band)),
+            gain_range_, 8.f);
     }
 
     void DraggerPanel::updateTargetAttachment(const size_t band) {
