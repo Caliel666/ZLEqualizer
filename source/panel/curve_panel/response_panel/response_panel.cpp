@@ -143,11 +143,13 @@ namespace zlpanel {
         sum_panel_.paintSameStereo(g);
 
         if (const auto band = base_.getSelectedBand();
-            band < zlp::kBandNum && c_filter_status_[band] != zlp::FilterStatus::kOff) {
+            band < zlp::kBandNum
+            && filter_status_[band].load(std::memory_order::relaxed) != zlp::FilterStatus::kOff) {
             juce::Path transient_path;
             juce::Path tone_path;
+            const auto curve_width = width_.load(std::memory_order::relaxed);
             for (size_t i = 0; i < kNumPoints; ++i) {
-                const auto x = xs_[i];
+                const auto x = curve_width * static_cast<float>(i) / static_cast<float>(kNumPoints - 1);
                 const auto transient_y = transient_curve_y_[band][i].load(std::memory_order_relaxed);
                 const auto tone_y = tone_curve_y_[band][i].load(std::memory_order_relaxed);
                 if (i == 0) {
