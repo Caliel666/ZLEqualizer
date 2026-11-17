@@ -467,8 +467,10 @@ namespace zlpanel {
 
                 if (enter_solo_triggered) {
                     if (is_transient_dragger) {
+                        base_.setSoloWholeIdx(2 * zlp::kBandNum);
                         p_ref_.getController().setSplitAuditionMode(1);
                     } else if (is_tone_dragger) {
+                        base_.setSoloWholeIdx(2 * zlp::kBandNum);
                         p_ref_.getController().setSplitAuditionMode(2);
                     } else if (event.originalComponent == &(draggers_[band].getButton())
                         || event.originalComponent == &(target_dragger_.getButton())) {
