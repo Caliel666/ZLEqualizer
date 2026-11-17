@@ -65,11 +65,16 @@ namespace zlp {
                      std::array<double*, 2> side_pointers,
                      size_t num_samples);
 
-        void setSplitBandGains(const size_t idx, const double transient_db, const double tone_db) {
+        void setSplitBandParameters(const size_t idx, const double transient_db, const double tone_db,
+                                    const double transient_freq_shift, const double tone_freq_shift) {
             transient_split_gains_[idx].store(std::clamp(transient_db, -30.0, 30.0),
                                                std::memory_order::relaxed);
             tone_split_gains_[idx].store(std::clamp(tone_db, -30.0, 30.0),
                                          std::memory_order::relaxed);
+            transient_split_freq_shifts_[idx].store(std::clamp(transient_freq_shift, -24.0, 24.0),
+                                                     std::memory_order::relaxed);
+            tone_split_freq_shifts_[idx].store(std::clamp(tone_freq_shift, -24.0, 24.0),
+                                               std::memory_order::relaxed);
             split_update_flags_[idx].signal();
             to_update_.signal();
         }
@@ -344,6 +349,9 @@ namespace zlp {
         // EQ remains the common curve and is never processed twice.
         std::array<std::atomic<double>, kBandNum> transient_split_gains_{};
         std::array<std::atomic<double>, kBandNum> tone_split_gains_{};
+        std::array<std::atomic<double>, kBandNum> transient_split_freq_shifts_{};
+        std::array<std::atomic<double>, kBandNum> tone_split_freq_shifts_{};
+        double split_sample_rate_{48000.0};
         std::array<zlchore::thread::Notifier, kBandNum> split_update_flags_{};
         std::array<bool, kBandNum> c_transient_split_on_{};
         std::array<bool, kBandNum> c_tone_split_on_{};
