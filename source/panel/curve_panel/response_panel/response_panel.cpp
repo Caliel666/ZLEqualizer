@@ -121,9 +121,13 @@ namespace zlpanel {
         }
         frequency = getValue(p_ref_.parameters_, (side ? zlp::PSideFreq::kID : zlp::PFreq::kID) + suffix);
         if (transient) {
+            frequency *= std::exp2(getValue(
+                p_ref_.parameters_, zlp::PTransientFreqShift::kID + suffix) / 12.f);
             gain = getValue(p_ref_.parameters_, zlp::PGain::kID + suffix)
                 + getValue(p_ref_.parameters_, zlp::PTransientGain::kID + suffix);
         } else if (tone) {
+            frequency *= std::exp2(getValue(
+                p_ref_.parameters_, zlp::PToneFreqShift::kID + suffix) / 12.f);
             gain = getValue(p_ref_.parameters_, zlp::PGain::kID + suffix)
                 + getValue(p_ref_.parameters_, zlp::PToneGain::kID + suffix);
         } else {
@@ -419,6 +423,12 @@ namespace zlpanel {
         } else if (parameter_ID.startsWith(zlp::PToneGain::kID)) {
             original_tone_gains_[band].store(value, std::memory_order::relaxed);
             to_update_empty_flags_[band].signal();
+        } else if (parameter_ID.startsWith(zlp::PTransientFreqShift::kID)) {
+            original_transient_freq_shifts_[band].store(value, std::memory_order_relaxed);
+            to_update_empty_flags_[band].signal();
+        } else if (parameter_ID.startsWith(zlp::PToneFreqShift::kID)) {
+            original_tone_freq_shifts_[band].store(value, std::memory_order_relaxed);
+            to_update_empty_flags_[band].signal();
         } else if (parameter_ID.startsWith(zlp::PQ::kID)) {
             empty_[band].setQ(value);
             to_update_empty_flags_[band].signal();
@@ -610,20 +620,31 @@ namespace zlpanel {
                     points_[band][4].store(c_k_ * getButtonMag(para) + c_b_, std::memory_order::relaxed);
 
                     auto transient_button_para = para;
-                    transient_button_para.gain += original_transient_gains_[band].load(std::memory_order::relaxed);
+                    transient_button_para.freq = std::clamp(
+                        para.freq * std::exp2(original_transient_freq_shifts_[band].load(
+                            std::memory_order_relaxed) / 12.f), 10.0, c_slider_max_);
+                    transient_button_para.gain += original_transient_gains_[band].load(std::memory_order_relaxed);
                     auto tone_button_para = para;
-                    tone_button_para.gain += original_tone_gains_[band].load(std::memory_order::relaxed);
-                    component_points_[band][0].store(static_cast<float>(center_x), std::memory_order::relaxed);
+                    tone_button_para.freq = std::clamp(
+                        para.freq * std::exp2(original_tone_freq_shifts_[band].load(
+                            std::memory_order_relaxed) / 12.f), 10.0, c_slider_max_);
+                    tone_button_para.gain += original_tone_gains_[band].load(std::memory_order_relaxed);
+                    const auto transient_x = std::get<1>(getLeftCenterRightX(transient_button_para));
+                    const auto tone_x = std::get<1>(getLeftCenterRightX(tone_button_para));
+                    component_points_[band][0].store(transient_x, std::memory_order_relaxed);
                     component_points_[band][1].store(
-                        c_k_ * getButtonMag(transient_button_para) + c_b_, std::memory_order::relaxed);
-                    component_points_[band][2].store(static_cast<float>(center_x), std::memory_order::relaxed);
+                        c_k_ * getButtonMag(transient_button_para) + c_b_, std::memory_order_relaxed);
+                    component_points_[band][2].store(tone_x, std::memory_order_relaxed);
                     component_points_[band][3].store(
-                        c_k_ * getButtonMag(tone_button_para) + c_b_, std::memory_order::relaxed);
+                        c_k_ * getButtonMag(tone_button_para) + c_b_, std::memory_order_relaxed);
 
                     const auto transient_offset = static_cast<double>(
                         original_transient_gains_[band].load(std::memory_order::relaxed)
                         * gain_scale_.load(std::memory_order::relaxed) / 100.f);
                     auto transient_para = ideal_[band].getParas();
+                    transient_para.freq = std::clamp(
+                        transient_para.freq * std::exp2(original_transient_freq_shifts_[band].load(
+                            std::memory_order_relaxed) / 12.f), 10.0, c_slider_max_);
                     transient_para.gain += transient_offset;
                     transient_ideal_[band].setScale(pass_scales_[band].load(std::memory_order::relaxed));
                     transient_ideal_[band].forceUpdate(transient_para);
@@ -638,6 +659,9 @@ namespace zlpanel {
                         original_tone_gains_[band].load(std::memory_order::relaxed)
                         * gain_scale_.load(std::memory_order::relaxed) / 100.f);
                     auto tone_para = ideal_[band].getParas();
+                    tone_para.freq = std::clamp(
+                        tone_para.freq * std::exp2(original_tone_freq_shifts_[band].load(
+                            std::memory_order_relaxed) / 12.f), 10.0, c_slider_max_);
                     tone_para.gain += tone_offset;
                     tone_ideal_[band].setScale(pass_scales_[band].load(std::memory_order::relaxed));
                     tone_ideal_[band].forceUpdate(tone_para);
