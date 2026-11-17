@@ -651,11 +651,15 @@ namespace zlpanel {
     void DraggerPanel::mouseDoubleClick(const juce::MouseEvent& event) {
         if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
             if (event.originalComponent == &(transient_dragger_.getButton())) {
-                updateValue(p_ref_.parameters_.getParameter(zlp::PTransientGain::kID + std::to_string(band)), 0.f);
+                const auto suffix = std::to_string(band);
+                updateValue(p_ref_.parameters_.getParameter(zlp::PTransientGain::kID + suffix), 0.f);
+                updateValue(p_ref_.parameters_.getParameter(zlp::PTransientFreqShift::kID + suffix), 0.f);
                 return;
             }
             if (event.originalComponent == &(tone_dragger_.getButton())) {
-                updateValue(p_ref_.parameters_.getParameter(zlp::PToneGain::kID + std::to_string(band)), 0.f);
+                const auto suffix = std::to_string(band);
+                updateValue(p_ref_.parameters_.getParameter(zlp::PToneGain::kID + suffix), 0.f);
+                updateValue(p_ref_.parameters_.getParameter(zlp::PToneFreqShift::kID + suffix), 0.f);
                 return;
             }
             const auto action_type = event.mods.isRightButtonDown()
