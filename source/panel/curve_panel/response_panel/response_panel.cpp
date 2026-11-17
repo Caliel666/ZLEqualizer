@@ -56,6 +56,8 @@ namespace zlpanel {
             base_mags_[i].resize(kNumPoints);
             target_mags_[i].resize(kNumPoints);
             dynamic_mags_[i].resize(kNumPoints);
+            transient_mags_[i].resize(kNumPoints);
+            tone_mags_[i].resize(kNumPoints);
         }
         for (size_t i = 0; i < 5; ++i) {
             sum_mags_[i].resize(kNumPoints);
@@ -518,6 +520,12 @@ namespace zlpanel {
             for (auto& f : ideal_) {
                 f.prepare(sample_rate);
             }
+            for (auto& f : transient_ideal_) {
+                f.prepare(sample_rate);
+            }
+            for (auto& f : tone_ideal_) {
+                f.prepare(sample_rate);
+            }
             for (auto& f : side_ideal_) {
                 f.prepare(sample_rate);
             }
@@ -599,8 +607,48 @@ namespace zlpanel {
                     points_[band][1].store(static_cast<float>(left_x), std::memory_order::relaxed);
                     points_[band][2].store(static_cast<float>(right_x), std::memory_order::relaxed);
                     points_[band][3].store(c_k_ * center_square_magnitude + c_b_, std::memory_order::relaxed);
-                    para.gain = original_base_gains_[band].load(std::memory_order::relaxed);
+                    const auto base_raw_gain = original_base_gains_[band].load(std::memory_order::relaxed);
+                    para.gain = base_raw_gain;
                     points_[band][4].store(c_k_ * getButtonMag(para) + c_b_, std::memory_order::relaxed);
+
+                    auto transient_button_para = para;
+                    transient_button_para.gain += original_transient_gains_[band].load(std::memory_order::relaxed);
+                    auto tone_button_para = para;
+                    tone_button_para.gain += original_tone_gains_[band].load(std::memory_order::relaxed);
+                    component_points_[band][0].store(static_cast<float>(center_x), std::memory_order::relaxed);
+                    component_points_[band][1].store(
+                        c_k_ * getButtonMag(transient_button_para) + c_b_, std::memory_order::relaxed);
+                    component_points_[band][2].store(static_cast<float>(center_x), std::memory_order::relaxed);
+                    component_points_[band][3].store(
+                        c_k_ * getButtonMag(tone_button_para) + c_b_, std::memory_order::relaxed);
+
+                    const auto transient_offset = static_cast<double>(
+                        original_transient_gains_[band].load(std::memory_order::relaxed)
+                        * gain_scale_.load(std::memory_order::relaxed) / 100.f);
+                    auto transient_para = ideal_[band].getParas();
+                    transient_para.gain += transient_offset;
+                    transient_ideal_[band].setScale(pass_scales_[band].load(std::memory_order::relaxed));
+                    transient_ideal_[band].forceUpdate(transient_para);
+                    transient_ideal_[band].updateMagnitudeSquare(ws_, transient_mags_[band]);
+                    zldsp::vector::sqr_mag_to_db(transient_mags_[band].data(), transient_mags_[band].size());
+                    for (size_t point = 0; point < kNumPoints; ++point) {
+                        transient_curve_y_[band][point].store(
+                            c_k_ * transient_mags_[band][point] + c_b_, std::memory_order::relaxed);
+                    }
+
+                    const auto tone_offset = static_cast<double>(
+                        original_tone_gains_[band].load(std::memory_order::relaxed)
+                        * gain_scale_.load(std::memory_order::relaxed) / 100.f);
+                    auto tone_para = ideal_[band].getParas();
+                    tone_para.gain += tone_offset;
+                    tone_ideal_[band].setScale(pass_scales_[band].load(std::memory_order::relaxed));
+                    tone_ideal_[band].forceUpdate(tone_para);
+                    tone_ideal_[band].updateMagnitudeSquare(ws_, tone_mags_[band]);
+                    zldsp::vector::sqr_mag_to_db(tone_mags_[band].data(), tone_mags_[band].size());
+                    for (size_t point = 0; point < kNumPoints; ++point) {
+                        tone_curve_y_[band][point].store(
+                            c_k_ * tone_mags_[band][point] + c_b_, std::memory_order::relaxed);
+                    }
 
                     if (threadShouldExit()) {
                         return false;
