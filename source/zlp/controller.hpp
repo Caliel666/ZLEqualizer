@@ -355,9 +355,11 @@ namespace zlp {
         std::array<std::vector<double>, 2> split_input_buffers_{};
         std::array<std::vector<double>, 2> split_transient_buffers_{};
         std::array<std::vector<double>, 2> split_tone_buffers_{};
+        std::array<std::vector<double>, 2> split_mask_buffers_{};
         std::array<double*, 2> split_input_pointers_{};
         std::array<double*, 2> split_transient_pointers_{};
         std::array<double*, 2> split_tone_pointers_{};
+        std::array<double*, 2> split_mask_pointers_{};
         std::array<std::atomic<bool>, kBandNum> pass_scale_on_{};
         std::array<std::atomic<double>, kBandNum> scales_ = make_array_of<std::atomic<double>, kBandNum>(1.0);
         std::array<double, kBandNum> c_scales_{};
