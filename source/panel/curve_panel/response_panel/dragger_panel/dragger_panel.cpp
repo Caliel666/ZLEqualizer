@@ -649,7 +649,9 @@ namespace zlpanel {
     void DraggerPanel::mouseEnter(const juce::MouseEvent& event) {
         if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
             if (event.originalComponent == &(draggers_[band].getButton())
-                || event.originalComponent == &(target_dragger_.getButton())) {
+                || event.originalComponent == &(target_dragger_.getButton())
+                || event.originalComponent == &(transient_dragger_.getButton())
+                || event.originalComponent == &(tone_dragger_.getButton())) {
                 q_attachment_ = std::make_unique<zlgui::attachment::SliderAttachment<true>>(
                     q_slider_, p_ref_.parameters_, zlp::PQ::kID + std::to_string(band), updater_);
                 q_attachment_->updateComponent();
@@ -688,7 +690,9 @@ namespace zlpanel {
                 || (band < zlp::kBandNum
                     && filter_types_[band] == zldsp::filter::kFlatGain
                     && (event.originalComponent == &draggers_[band].getButton()
-                        || event.originalComponent == &target_dragger_.getButton()))) {
+                        || event.originalComponent == &target_dragger_.getButton()
+                        || event.originalComponent == &transient_dragger_.getButton()
+                        || event.originalComponent == &tone_dragger_.getButton()))) {
                 return;
             }
             if (event.mods.isCommandDown()) {
