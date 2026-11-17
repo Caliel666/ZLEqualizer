@@ -46,7 +46,8 @@ namespace zlpanel {
         };
 
         static constexpr std::array kShiftIDs{
-            zlp::PThreshold::kID, zlp::PKneeW::kID
+            zlp::PThreshold::kID, zlp::PKneeW::kID,
+            zlp::PTransientFreqShift::kID, zlp::PToneFreqShift::kID
         };
 
         zlchore::thread::Notifier whole_to_update_{};
