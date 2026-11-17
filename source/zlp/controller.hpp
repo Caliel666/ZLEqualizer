@@ -66,8 +66,10 @@ namespace zlp {
                      size_t num_samples);
 
         void setSplitBandGains(const size_t idx, const double transient_db, const double tone_db) {
-            transient_split_gains_[idx].store(transient_db, std::memory_order::relaxed);
-            tone_split_gains_[idx].store(tone_db, std::memory_order::relaxed);
+            transient_split_gains_[idx].store(std::clamp(transient_db, -30.0, 30.0),
+                                               std::memory_order::relaxed);
+            tone_split_gains_[idx].store(std::clamp(tone_db, -30.0, 30.0),
+                                         std::memory_order::relaxed);
             split_update_flags_[idx].signal();
             to_update_.signal();
         }
