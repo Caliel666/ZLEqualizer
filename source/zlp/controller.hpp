@@ -535,7 +535,11 @@ namespace zlp {
         void processSplitFilters(std::array<zldsp::filter::TDF<double, kFilterSize>, kBandNum>& filters,
                                  std::array<double*, 2> buffer, size_t num_samples, bool transient);
 
-        void processSplitOutput(std::array<double*, 2> main_pointers, size_t num_samples);
+        void prepareSplitBuffers(std::array<double*, 2> main_pointers, size_t num_samples);
+
+        void applySplitOutput(std::array<double*, 2> main_pointers, size_t num_samples);
+
+        bool split_block_active_{false};
 
         void prepareFilters();
 
