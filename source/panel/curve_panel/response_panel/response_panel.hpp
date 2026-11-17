@@ -49,7 +49,8 @@ namespace zlpanel {
         static constexpr std::array kIDs{
             zlp::PFilterStatus::kID, zlp::PLRMode::kID,
             zlp::PFilterType::kID, zlp::POrder::kID, zlp::PFreq::kID, zlp::PGain::kID,
-            zlp::PTransientGain::kID, zlp::PToneGain::kID, zlp::PQ::kID,
+            zlp::PTransientGain::kID, zlp::PToneGain::kID,
+            zlp::PTransientFreqShift::kID, zlp::PToneFreqShift::kID, zlp::PQ::kID,
             zlp::PPassScaleON::kID, zlp::PPassScaleV::kID,
             zlp::PDynamicON::kID,
             zlp::PTargetGain::kID,
@@ -65,6 +66,8 @@ namespace zlpanel {
         std::array<std::atomic<float>, zlp::kBandNum> original_target_gains_{};
         std::array<std::atomic<float>, zlp::kBandNum> original_transient_gains_{};
         std::array<std::atomic<float>, zlp::kBandNum> original_tone_gains_{};
+        std::array<std::atomic<float>, zlp::kBandNum> original_transient_freq_shifts_{};
+        std::array<std::atomic<float>, zlp::kBandNum> original_tone_freq_shifts_{};
         std::atomic<float>& gain_scale_;
 
         std::vector<size_t> message_not_off_indices_;
