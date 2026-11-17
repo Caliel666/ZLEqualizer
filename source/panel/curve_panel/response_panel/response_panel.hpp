@@ -107,6 +107,11 @@ namespace zlpanel {
         std::array<zldsp::vector::aligned_vector<float>, zlp::kBandNum> base_mags_;
         std::array<zldsp::vector::aligned_vector<float>, zlp::kBandNum> target_mags_;
         std::array<zldsp::vector::aligned_vector<float>, zlp::kBandNum> dynamic_mags_;
+        std::array<zldsp::vector::aligned_vector<float>, zlp::kBandNum> transient_mags_;
+        std::array<zldsp::vector::aligned_vector<float>, zlp::kBandNum> tone_mags_;
+        std::array<std::array<std::atomic<float>, kNumPoints>, zlp::kBandNum> transient_curve_y_{};
+        std::array<std::array<std::atomic<float>, kNumPoints>, zlp::kBandNum> tone_curve_y_{};
+        std::array<std::array<std::atomic<float>, 4>, zlp::kBandNum> component_points_{};
         std::array<zldsp::vector::aligned_vector<float>, 5> sum_mags_;
 
         std::array<zldsp::filter::Empty, zlp::kBandNum> empty_{};
