@@ -56,6 +56,14 @@ namespace zlpanel {
             return side_dragger_;
         }
 
+        zlgui::dragger::Dragger& getTransientDragger() {
+            return transient_dragger_;
+        }
+
+        zlgui::dragger::Dragger& getToneDragger() {
+            return tone_dragger_;
+        }
+
         FloatPopPanel& getFloatPopPanel() {
             return float_pop_panel_;
         }
@@ -95,6 +103,8 @@ namespace zlpanel {
         std::array<zlgui::dragger::Dragger, zlp::kBandNum> draggers_;
         zlgui::dragger::Dragger target_dragger_;
         zlgui::dragger::Dragger side_dragger_;
+        zlgui::dragger::Dragger transient_dragger_;
+        zlgui::dragger::Dragger tone_dragger_;
 
         size_t previous_solo_whole_idx_{2 * zlp::kBandNum};
         std::array<bool, zlp::kBandNum> dragger_y_enabled_{};
@@ -125,6 +135,9 @@ namespace zlpanel {
         float solo_gain_drag_height_{1.f};
         bool solo_gain_drag_active_{false};
         bool exit_solo_on_mouse_up_{false};
+        bool transient_drag_active_{false};
+        bool tone_drag_active_{false};
+        float split_drag_gain_at_start_{0.f};
 
         zlgui::slider::SnappingSlider q_slider_;
         std::unique_ptr<zlgui::attachment::SliderAttachment<true>> q_attachment_;
