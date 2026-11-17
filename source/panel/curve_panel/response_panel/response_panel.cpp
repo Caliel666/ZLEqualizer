@@ -33,6 +33,23 @@ namespace zlpanel {
         }
         p_ref_.parameters_.addParameterListener(zlp::PGainScale::kID, this);
 
+        transient_audition_button_.setRadioGroupId(8123);
+        both_audition_button_.setRadioGroupId(8123);
+        tone_audition_button_.setRadioGroupId(8123);
+        transient_audition_button_.setClickingTogglesState(true);
+        both_audition_button_.setClickingTogglesState(true);
+        tone_audition_button_.setClickingTogglesState(true);
+        transient_audition_button_.setTooltip("Audition transient component only");
+        both_audition_button_.setTooltip("Audition the normal combined output");
+        tone_audition_button_.setTooltip("Audition tone/sustain component only");
+        transient_audition_button_.onClick = [this] { p_ref_.getController().setSplitAuditionMode(1); };
+        both_audition_button_.onClick = [this] { p_ref_.getController().setSplitAuditionMode(0); };
+        tone_audition_button_.onClick = [this] { p_ref_.getController().setSplitAuditionMode(2); };
+        both_audition_button_.setToggleState(true, juce::dontSendNotification);
+        addAndMakeVisible(transient_audition_button_);
+        addAndMakeVisible(both_audition_button_);
+        addAndMakeVisible(tone_audition_button_);
+
         xs_.resize(kNumPoints);
         ws_.resize(kNumPoints);
         for (size_t i = 0; i < zlp::kBandNum; ++i) {
@@ -71,7 +88,10 @@ namespace zlpanel {
         auto band = base_.getSelectedBand();
         const auto target = band < zlp::kBandNum && component == &dragger_panel_.getTargetDragger().getButton();
         const auto side = band < zlp::kBandNum && component == &dragger_panel_.getSideDragger().getButton();
-        if (!target && !side) {
+        const auto transient = band < zlp::kBandNum
+            && component == &dragger_panel_.getTransientDragger().getButton();
+        const auto tone = band < zlp::kBandNum && component == &dragger_panel_.getToneDragger().getButton();
+        if (!target && !side && !transient && !tone) {
             for (band = 0; band < zlp::kBandNum; ++band) {
                 if (component == &dragger_panel_.getDragger(band).getButton()) {
                     break;
@@ -86,7 +106,15 @@ namespace zlpanel {
             return false;
         }
         frequency = getValue(p_ref_.parameters_, (side ? zlp::PSideFreq::kID : zlp::PFreq::kID) + suffix);
-        gain = getValue(p_ref_.parameters_, (target ? zlp::PTargetGain::kID : zlp::PGain::kID) + suffix);
+        if (transient) {
+            gain = getValue(p_ref_.parameters_, zlp::PGain::kID + suffix)
+                + getValue(p_ref_.parameters_, zlp::PTransientGain::kID + suffix);
+        } else if (tone) {
+            gain = getValue(p_ref_.parameters_, zlp::PGain::kID + suffix)
+                + getValue(p_ref_.parameters_, zlp::PToneGain::kID + suffix);
+        } else {
+            gain = getValue(p_ref_.parameters_, (target ? zlp::PTargetGain::kID : zlp::PGain::kID) + suffix);
+        }
         return std::isfinite(frequency) && std::isfinite(gain);
     }
 
@@ -111,6 +139,11 @@ namespace zlpanel {
         single_panel_.setBounds(bound);
         sum_panel_.setBounds(bound);
         dragger_panel_.setBounds(bound);
+        auto audition_bounds = bound.reduced(4).removeFromTop(std::max(20, static_cast<int>(font_size * 1.55f)));
+        const auto button_width = std::min(82, audition_bounds.getWidth() / 3);
+        tone_audition_button_.setBounds(audition_bounds.removeFromRight(button_width));
+        both_audition_button_.setBounds(audition_bounds.removeFromRight(button_width));
+        transient_audition_button_.setBounds(audition_bounds.removeFromRight(button_width));
         solo_panel_.setBounds(bound);
         side_y_ = static_cast<float>(bound.getHeight() - bottom_height) - font_size * kDraggerScale * .5f;
         width_.store(static_cast<float>(bound.getWidth()), std::memory_order::relaxed);
