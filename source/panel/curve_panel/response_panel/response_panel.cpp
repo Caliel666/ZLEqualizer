@@ -381,9 +381,6 @@ namespace zlpanel {
                 empty_[band].setGain(
                     std::clamp(
                         original_base_gains_[band].load(std::memory_order::relaxed) * value / 100.f, -30.f, 30.f));
-                p_ref_.getController().setSplitBandGains(
-                    band, original_transient_gains_[band].load(std::memory_order::relaxed) * value / 100.f,
-                    original_tone_gains_[band].load(std::memory_order::relaxed) * value / 100.f);
                 to_update_empty_flags_[band].signal();
                 target_gains_[band].store(
                     std::clamp(
@@ -413,25 +410,12 @@ namespace zlpanel {
             original_base_gains_[band].store(value, std::memory_order::relaxed);
             empty_[band].setGain(
                 std::clamp(value * gain_scale_.load(std::memory_order::relaxed) / 100.f, -30.f, 30.f));
-            p_ref_.getController().setSplitBandGains(
-                band, original_transient_gains_[band].load(std::memory_order::relaxed)
-                    * gain_scale_.load(std::memory_order::relaxed) / 100.f,
-                original_tone_gains_[band].load(std::memory_order::relaxed)
-                    * gain_scale_.load(std::memory_order::relaxed) / 100.f);
             to_update_empty_flags_[band].signal();
         } else if (parameter_ID.startsWith(zlp::PTransientGain::kID)) {
             original_transient_gains_[band].store(value, std::memory_order::relaxed);
-            p_ref_.getController().setSplitBandGains(
-                band, value * gain_scale_.load(std::memory_order::relaxed) / 100.f,
-                original_tone_gains_[band].load(std::memory_order::relaxed)
-                    * gain_scale_.load(std::memory_order::relaxed) / 100.f);
             to_update_empty_flags_[band].signal();
         } else if (parameter_ID.startsWith(zlp::PToneGain::kID)) {
             original_tone_gains_[band].store(value, std::memory_order::relaxed);
-            p_ref_.getController().setSplitBandGains(
-                band, original_transient_gains_[band].load(std::memory_order::relaxed)
-                    * gain_scale_.load(std::memory_order::relaxed) / 100.f,
-                value * gain_scale_.load(std::memory_order::relaxed) / 100.f);
             to_update_empty_flags_[band].signal();
         } else if (parameter_ID.startsWith(zlp::PQ::kID)) {
             empty_[band].setQ(value);
