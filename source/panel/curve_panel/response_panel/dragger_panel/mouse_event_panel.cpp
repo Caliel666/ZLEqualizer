@@ -142,6 +142,12 @@ namespace zlpanel {
         auto* tone_gain = p_ref_.parameters_.getParameter(zlp::PToneGain::kID + std::to_string(band_idx));
         updateValue(transient_gain, transient_gain->convertTo0to1(0.f));
         updateValue(tone_gain, tone_gain->convertTo0to1(0.f));
+        auto* transient_freq_shift = p_ref_.parameters_.getParameter(
+            zlp::PTransientFreqShift::kID + std::to_string(band_idx));
+        auto* tone_freq_shift = p_ref_.parameters_.getParameter(
+            zlp::PToneFreqShift::kID + std::to_string(band_idx));
+        updateValue(transient_freq_shift, transient_freq_shift->convertTo0to1(0.f));
+        updateValue(tone_freq_shift, tone_freq_shift->convertTo0to1(0.f));
 
         for (size_t i = 0; i < kInitIDs.size(); ++i) {
             auto* para = p_ref_.parameters_.getParameter(kInitIDs[i] + std::to_string(band_idx));
