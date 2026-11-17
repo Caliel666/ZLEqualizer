@@ -339,6 +339,15 @@ namespace zlpanel {
         dragger_gain_attachment_ = std::make_unique<zlgui::attachment::DraggerAttachment<false, false>>(
             draggers_[band], p_ref_.parameters_,
             zlp::PGain::kID + std::to_string(band), gain_range_, updater_);
+
+        transient_dragger_attachment_.reset();
+        transient_dragger_attachment_ = std::make_unique<zlgui::attachment::DraggerAttachment<false, false>>(
+            transient_dragger_, p_ref_.parameters_,
+            zlp::PTransientGain::kID + std::to_string(band), gain_range_, updater_);
+        tone_dragger_attachment_.reset();
+        tone_dragger_attachment_ = std::make_unique<zlgui::attachment::DraggerAttachment<false, false>>(
+            tone_dragger_, p_ref_.parameters_,
+            zlp::PToneGain::kID + std::to_string(band), gain_range_, updater_);
     }
 
     void DraggerPanel::updateTargetAttachment(const size_t band) {
@@ -418,8 +427,6 @@ namespace zlpanel {
 
     void DraggerPanel::mouseDown(const juce::MouseEvent& event) {
         solo_gain_drag_active_ = false;
-        transient_drag_active_ = false;
-        tone_drag_active_ = false;
         exit_solo_on_mouse_up_ = false;
         if (event.originalComponent == &mouse_event_panel_) {
             items_set_.deselectAll();
@@ -438,16 +445,8 @@ namespace zlpanel {
             }
         }
         if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
-            const auto suffix = std::to_string(band);
             const auto is_transient_dragger = event.originalComponent == &(transient_dragger_.getButton());
             const auto is_tone_dragger = event.originalComponent == &(tone_dragger_.getButton());
-            if (is_transient_dragger) {
-                split_drag_gain_at_start_ = getValue(p_ref_.parameters_, zlp::PTransientGain::kID + suffix);
-                transient_drag_active_ = true;
-            } else if (is_tone_dragger) {
-                split_drag_gain_at_start_ = getValue(p_ref_.parameters_, zlp::PToneGain::kID + suffix);
-                tone_drag_active_ = true;
-            }
             if (event.originalComponent == &(side_dragger_.getButton())) {
                 updateValue(p_ref_.parameters_.getParameter(zlp::PSideLink::kID + std::to_string(band)), 0.f);
             }
@@ -557,18 +556,6 @@ namespace zlpanel {
         if (event.originalComponent == &mouse_event_panel_) {
             lasso_component_.dragLasso(event);
             return;
-        }
-        if (transient_drag_active_ || tone_drag_active_) {
-            const auto band = base_.getSelectedBand();
-            if (band < zlp::kBandNum) {
-                const auto db_per_pixel = 2.f * max_db_ / solo_gain_drag_height_;
-                const auto offset = std::clamp(
-                    split_drag_gain_at_start_ - static_cast<float>(event.getDistanceFromDragStartY()) * db_per_pixel,
-                    -30.f, 30.f);
-                auto* parameter = p_ref_.parameters_.getParameter(
-                    (transient_drag_active_ ? zlp::PTransientGain::kID : zlp::PToneGain::kID) + std::to_string(band));
-                updateValue(parameter, offset);
-            }
         }
     }
 
