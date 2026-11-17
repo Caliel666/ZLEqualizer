@@ -65,6 +65,7 @@ namespace zlp {
 
     void Controller::prepare(const double sample_rate, const size_t max_num_samples) {
         c_filter_structure_ = kMinimum;
+        split_sample_rate_ = std::max(sample_rate, 1.0);
 
         side_buffers[0].resize(max_num_samples);
         side_buffers[1].resize(max_num_samples);
@@ -597,6 +598,13 @@ namespace zlp {
         auto tone_paras = filter_paras_[i];
         transient_paras.gain = transient_split_gains_[i].load(std::memory_order::relaxed);
         tone_paras.gain = tone_split_gains_[i].load(std::memory_order::relaxed);
+        const auto transient_freq_shift = transient_split_freq_shifts_[i].load(std::memory_order::relaxed);
+        const auto tone_freq_shift = tone_split_freq_shifts_[i].load(std::memory_order::relaxed);
+        const auto max_freq = split_sample_rate_ * 0.49;
+        transient_paras.freq = std::clamp(
+            filter_paras_[i].freq * std::exp2(transient_freq_shift / 12.0), 10.0, max_freq);
+        tone_paras.freq = std::clamp(
+            filter_paras_[i].freq * std::exp2(tone_freq_shift / 12.0), 10.0, max_freq);
         transient_split_filters_[i].setScale(c_scales_[i]);
         tone_split_filters_[i].setScale(c_scales_[i]);
         transient_split_filters_[i].updateParas(transient_paras);
