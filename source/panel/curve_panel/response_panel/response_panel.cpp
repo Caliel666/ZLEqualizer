@@ -42,13 +42,25 @@ namespace zlpanel {
         transient_audition_button_.setTooltip("Audition transient component only");
         both_audition_button_.setTooltip("Audition the normal combined output");
         tone_audition_button_.setTooltip("Audition tone/sustain component only");
-        transient_audition_button_.onClick = [this] { p_ref_.getController().setSplitAuditionMode(1); };
-        both_audition_button_.onClick = [this] { p_ref_.getController().setSplitAuditionMode(0); };
-        tone_audition_button_.onClick = [this] { p_ref_.getController().setSplitAuditionMode(2); };
+        transient_audition_button_.onClick = [this] {
+            base_.setSoloWholeIdx(2 * zlp::kBandNum);
+            p_ref_.getController().setSplitAuditionMode(1);
+        };
+        both_audition_button_.onClick = [this] {
+            base_.setSoloWholeIdx(2 * zlp::kBandNum);
+            p_ref_.getController().setSplitAuditionMode(0);
+        };
+        tone_audition_button_.onClick = [this] {
+            base_.setSoloWholeIdx(2 * zlp::kBandNum);
+            p_ref_.getController().setSplitAuditionMode(2);
+        };
         both_audition_button_.setToggleState(true, juce::dontSendNotification);
         addAndMakeVisible(transient_audition_button_);
         addAndMakeVisible(both_audition_button_);
         addAndMakeVisible(tone_audition_button_);
+        transient_audition_button_.setAlwaysOnTop(true);
+        both_audition_button_.setAlwaysOnTop(true);
+        tone_audition_button_.setAlwaysOnTop(true);
 
         xs_.resize(kNumPoints);
         ws_.resize(kNumPoints);
@@ -774,5 +786,8 @@ namespace zlpanel {
 
     void ResponsePanel::turnMatchON(const bool match_on) {
         dragger_panel_.setVisible(!match_on);
+        transient_audition_button_.setVisible(!match_on);
+        both_audition_button_.setVisible(!match_on);
+        tone_audition_button_.setVisible(!match_on);
     }
 }
