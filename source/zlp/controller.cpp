@@ -74,9 +74,11 @@ namespace zlp {
             split_input_buffers_[channel].resize(max_num_samples);
             split_transient_buffers_[channel].resize(max_num_samples);
             split_tone_buffers_[channel].resize(max_num_samples);
+            split_mask_buffers_[channel].resize(max_num_samples);
             split_input_pointers_[channel] = split_input_buffers_[channel].data();
             split_transient_pointers_[channel] = split_transient_buffers_[channel].data();
             split_tone_pointers_[channel] = split_tone_buffers_[channel].data();
+            split_mask_pointers_[channel] = split_mask_buffers_[channel].data();
         }
         split_detector_.prepare(sample_rate);
 
@@ -685,6 +687,14 @@ namespace zlp {
         }
         split_detector_.process(split_input_pointers_, split_transient_pointers_,
                                 split_tone_pointers_, num_samples);
+        for (size_t channel = 0; channel < 2; ++channel) {
+            for (size_t sample = 0; sample < num_samples; ++sample) {
+                const auto input = split_input_pointers_[channel][sample];
+                split_mask_pointers_[channel][sample] = std::abs(input) > 1.0e-12
+                    ? std::clamp(split_transient_pointers_[channel][sample] / input, 0.0, 1.0)
+                    : 0.0;
+            }
+        }
         processSplitFilters(transient_split_filters_, split_transient_pointers_, num_samples, true);
         processSplitFilters(tone_split_filters_, split_tone_pointers_, num_samples, false);
     }
@@ -694,14 +704,24 @@ namespace zlp {
         if (!split_block_active_) {
             return;
         }
-        if (c_split_audition_mode_ == 1) {
-            zldsp::vector::copy(main_pointers[0], split_transient_pointers_[0], num_samples);
-            zldsp::vector::copy(main_pointers[1], split_transient_pointers_[1], num_samples);
-            return;
-        }
-        if (c_split_audition_mode_ == 2) {
-            zldsp::vector::copy(main_pointers[0], split_tone_pointers_[0], num_samples);
-            zldsp::vector::copy(main_pointers[1], split_tone_pointers_[1], num_samples);
+        if (c_split_audition_mode_ == 1 || c_split_audition_mode_ == 2) {
+            const auto audition_transient = c_split_audition_mode_ == 1;
+            for (size_t channel = 0; channel < 2; ++channel) {
+                for (size_t sample = 0; sample < num_samples; ++sample) {
+                    const auto mask = split_mask_pointers_[channel][sample];
+                    const auto component_mask = audition_transient ? mask : 1.0 - mask;
+                    const auto component_input = split_input_pointers_[channel][sample] * component_mask;
+                    const auto component_filtered = audition_transient
+                        ? split_transient_pointers_[channel][sample]
+                        : split_tone_pointers_[channel][sample];
+                    // Keep the shared EQ response while monitoring one half of
+                    // the split, then add only that component's independent EQ
+                    // correction.
+                    main_pointers[channel][sample] =
+                        main_pointers[channel][sample] * component_mask
+                        + component_filtered - component_input;
+                }
+            }
             return;
         }
         for (size_t channel = 0; channel < 2; ++channel) {
