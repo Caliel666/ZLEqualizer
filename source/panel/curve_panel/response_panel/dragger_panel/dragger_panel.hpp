@@ -135,9 +135,8 @@ namespace zlpanel {
         float solo_gain_drag_height_{1.f};
         bool solo_gain_drag_active_{false};
         bool exit_solo_on_mouse_up_{false};
-        bool transient_drag_active_{false};
-        bool tone_drag_active_{false};
-        float split_drag_gain_at_start_{0.f};
+        std::unique_ptr<zlgui::attachment::DraggerAttachment<false, false>> transient_dragger_attachment_;
+        std::unique_ptr<zlgui::attachment::DraggerAttachment<false, false>> tone_dragger_attachment_;
 
         zlgui::slider::SnappingSlider q_slider_;
         std::unique_ptr<zlgui::attachment::SliderAttachment<true>> q_attachment_;
