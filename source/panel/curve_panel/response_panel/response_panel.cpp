@@ -127,6 +127,29 @@ namespace zlpanel {
         sum_panel_.paintDifferentStereo(g);
         single_panel_.paintSameStereo(g);
         sum_panel_.paintSameStereo(g);
+
+        if (const auto band = base_.getSelectedBand();
+            band < zlp::kBandNum && c_filter_status_[band] != zlp::FilterStatus::kOff) {
+            juce::Path transient_path;
+            juce::Path tone_path;
+            for (size_t i = 0; i < kNumPoints; ++i) {
+                const auto x = xs_[i];
+                const auto transient_y = transient_curve_y_[band][i].load(std::memory_order_relaxed);
+                const auto tone_y = tone_curve_y_[band][i].load(std::memory_order_relaxed);
+                if (i == 0) {
+                    transient_path.startNewSubPath(x, transient_y);
+                    tone_path.startNewSubPath(x, tone_y);
+                } else {
+                    transient_path.lineTo(x, transient_y);
+                    tone_path.lineTo(x, tone_y);
+                }
+            }
+            const auto colour = base_.gui.getColourMap1(band);
+            g.setColour(colour.brighter(.45f).withAlpha(.95f));
+            g.strokePath(transient_path, juce::PathStrokeType(1.5f));
+            g.setColour(colour.darker(.35f).withAlpha(.95f));
+            g.strokePath(tone_path, juce::PathStrokeType(1.5f));
+        }
         if (should_alpha) {
             g.endTransparencyLayer();
         }
@@ -175,6 +198,7 @@ namespace zlpanel {
         updateFloatingPosition();
         updateTargetPosition();
         updateSidePosition();
+        updateComponentPositions();
     }
 
     void ResponsePanel::updateSoloPosition() {
@@ -205,6 +229,17 @@ namespace zlpanel {
             dragger_panel_.getSideDragger().updateButton(
             {side_points_[band][0].load(std::memory_order::relaxed),
              side_y_});
+        }
+    }
+
+    void ResponsePanel::updateComponentPositions() {
+        if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
+            const auto transient_x = component_points_[band][0].load(std::memory_order_relaxed);
+            const auto transient_y = component_points_[band][1].load(std::memory_order_relaxed);
+            const auto tone_x = component_points_[band][2].load(std::memory_order_relaxed);
+            const auto tone_y = component_points_[band][3].load(std::memory_order_relaxed);
+            dragger_panel_.getTransientDragger().updateButton({transient_x, transient_y - 8.f});
+            dragger_panel_.getToneDragger().updateButton({tone_x, tone_y + 8.f});
         }
     }
 
@@ -247,6 +282,7 @@ namespace zlpanel {
         updateFloatingPosition();
         updateTargetPosition();
         updateSidePosition();
+        updateComponentPositions();
         for (int lr = 0; lr < 5; ++lr) {
             if (selected_band < zlp::kBandNum) {
                 sum_panel_.updateDrawingParas(lr, lr == selected_lr_mode);
@@ -267,6 +303,7 @@ namespace zlpanel {
         updateFloatingPosition();
         updateTargetPosition();
         updateSidePosition();
+        updateComponentPositions();
     }
 
     void ResponsePanel::updateSampleRate(const double sample_rate) {
