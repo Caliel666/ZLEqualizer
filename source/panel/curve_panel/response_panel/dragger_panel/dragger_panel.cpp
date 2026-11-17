@@ -537,8 +537,6 @@ namespace zlpanel {
             p_ref_.getController().resetSoloGain();
             solo_gain_drag_active_ = false;
         }
-        transient_drag_active_ = false;
-        tone_drag_active_ = false;
         if (event.originalComponent == &mouse_event_panel_) {
             lasso_component_.endLasso();
             lasso_component_.setVisible(false);
