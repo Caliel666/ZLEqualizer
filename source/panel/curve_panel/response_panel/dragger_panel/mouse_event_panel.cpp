@@ -137,16 +137,16 @@ namespace zlpanel {
         init_values[6] = 0.707f;
         init_values[7] = event.mods.isCommandDown() ? 1.f : 0.f;
 
+        auto* transient_gain = p_ref_.parameters_.getParameter(
+            zlp::PTransientGain::kID + std::to_string(band_idx));
+        auto* tone_gain = p_ref_.parameters_.getParameter(zlp::PToneGain::kID + std::to_string(band_idx));
+        updateValue(transient_gain, transient_gain->convertTo0to1(0.f));
+        updateValue(tone_gain, tone_gain->convertTo0to1(0.f));
+
         for (size_t i = 0; i < kInitIDs.size(); ++i) {
             auto* para = p_ref_.parameters_.getParameter(kInitIDs[i] + std::to_string(band_idx));
             updateValue(para, para->convertTo0to1(init_values[i]));
         }
-        updateValue(p_ref_.parameters_.getParameter(zlp::PTransientGain::kID + std::to_string(band_idx)),
-                    p_ref_.parameters_.getParameter(zlp::PTransientGain::kID + std::to_string(band_idx))
-                        ->convertTo0to1(0.f));
-        updateValue(p_ref_.parameters_.getParameter(zlp::PToneGain::kID + std::to_string(band_idx)),
-                    p_ref_.parameters_.getParameter(zlp::PToneGain::kID + std::to_string(band_idx))
-                        ->convertTo0to1(0.f));
         band_helper::turnOnOffDynamic(p_ref_, band_idx, init_values[7] > .5f, max_db);
         base_.setSelectedBand(band_idx);
     }
