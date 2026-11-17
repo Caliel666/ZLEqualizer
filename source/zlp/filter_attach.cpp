@@ -21,6 +21,8 @@ namespace zlp {
         gain_(*parameters.getRawParameterValue(PGain::kID + std::to_string(idx))),
         transient_gain_(*parameters.getRawParameterValue(PTransientGain::kID + std::to_string(idx))),
         tone_gain_(*parameters.getRawParameterValue(PToneGain::kID + std::to_string(idx))),
+        transient_freq_shift_(*parameters.getRawParameterValue(PTransientFreqShift::kID + std::to_string(idx))),
+        tone_freq_shift_(*parameters.getRawParameterValue(PToneFreqShift::kID + std::to_string(idx))),
         update_flag_(controller.getEmptyUpdateFlags()[idx]),
         whole_update_flag_(controller.getUpdateFlag()),
         side_link_(*parameters.getRawParameterValue(PSideLink::kID + std::to_string(idx))),
@@ -77,6 +79,18 @@ namespace zlp {
             controller_.setSplitBandGains(idx_,
                 transient_gain_.load(std::memory_order::relaxed) * (scale_.load(std::memory_order::relaxed) / 100.f),
                 value * (scale_.load(std::memory_order::relaxed) / 100.f));
+        } else if (parameter_ID.startsWith(PTransientFreqShift::kID)) {
+            controller_.setSplitBandParameters(idx_,
+                transient_gain_.load(std::memory_order_relaxed) * (scale_.load(std::memory_order_relaxed) / 100.f),
+                tone_gain_.load(std::memory_order_relaxed) * (scale_.load(std::memory_order_relaxed) / 100.f),
+                value,
+                tone_freq_shift_.load(std::memory_order_relaxed));
+        } else if (parameter_ID.startsWith(PToneFreqShift::kID)) {
+            controller_.setSplitBandParameters(idx_,
+                transient_gain_.load(std::memory_order_relaxed) * (scale_.load(std::memory_order_relaxed) / 100.f),
+                tone_gain_.load(std::memory_order_relaxed) * (scale_.load(std::memory_order_relaxed) / 100.f),
+                transient_freq_shift_.load(std::memory_order_relaxed),
+                value);
         } else if (parameter_ID.startsWith(PQ::kID)) {
             empty_.setQ(value);
             update_flag_.signal();
