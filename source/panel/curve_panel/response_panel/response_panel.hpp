@@ -48,7 +48,8 @@ namespace zlpanel {
     private:
         static constexpr std::array kIDs{
             zlp::PFilterStatus::kID, zlp::PLRMode::kID,
-            zlp::PFilterType::kID, zlp::POrder::kID, zlp::PFreq::kID, zlp::PGain::kID, zlp::PQ::kID,
+            zlp::PFilterType::kID, zlp::POrder::kID, zlp::PFreq::kID, zlp::PGain::kID,
+            zlp::PTransientGain::kID, zlp::PToneGain::kID, zlp::PQ::kID,
             zlp::PPassScaleON::kID, zlp::PPassScaleV::kID,
             zlp::PDynamicON::kID,
             zlp::PTargetGain::kID,
@@ -62,6 +63,8 @@ namespace zlpanel {
 
         std::array<std::atomic<float>, zlp::kBandNum> original_base_gains_{};
         std::array<std::atomic<float>, zlp::kBandNum> original_target_gains_{};
+        std::array<std::atomic<float>, zlp::kBandNum> original_transient_gains_{};
+        std::array<std::atomic<float>, zlp::kBandNum> original_tone_gains_{};
         std::atomic<float>& gain_scale_;
 
         std::vector<size_t> message_not_off_indices_;
@@ -76,6 +79,9 @@ namespace zlpanel {
         SumPanel sum_panel_;
         DraggerPanel dragger_panel_;
         SoloPanel solo_panel_;
+        juce::TextButton transient_audition_button_{"Transient"};
+        juce::TextButton both_audition_button_{"Both"};
+        juce::TextButton tone_audition_button_{"Tone"};
 
         float side_y_{0.f};
         std::atomic<float> width_{0.f}, height_{0.f}, font_size_{1.f};
@@ -94,6 +100,8 @@ namespace zlpanel {
         std::vector<float> xs_;
 
         std::array<zldsp::filter::Ideal<float, zlp::Controller::kFilterSize>, zlp::kBandNum> ideal_{};
+        std::array<zldsp::filter::Ideal<float, zlp::Controller::kFilterSize>, zlp::kBandNum> transient_ideal_{};
+        std::array<zldsp::filter::Ideal<float, zlp::Controller::kFilterSize>, zlp::kBandNum> tone_ideal_{};
         std::array<zldsp::filter::Ideal<float, zlp::Controller::kFilterSize / 2>, zlp::kBandNum> side_ideal_{};
 
         std::array<zldsp::vector::aligned_vector<float>, zlp::kBandNum> base_mags_;
@@ -151,6 +159,8 @@ namespace zlpanel {
         void updateTargetPosition();
 
         void updateSidePosition();
+
+        void updateComponentPositions();
 
         void updateFloatingPosition();
 
