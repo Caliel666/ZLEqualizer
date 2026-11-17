@@ -141,6 +141,12 @@ namespace zlpanel {
             auto* para = p_ref_.parameters_.getParameter(kInitIDs[i] + std::to_string(band_idx));
             updateValue(para, para->convertTo0to1(init_values[i]));
         }
+        updateValue(p_ref_.parameters_.getParameter(zlp::PTransientGain::kID + std::to_string(band_idx)),
+                    p_ref_.parameters_.getParameter(zlp::PTransientGain::kID + std::to_string(band_idx))
+                        ->convertTo0to1(0.f));
+        updateValue(p_ref_.parameters_.getParameter(zlp::PToneGain::kID + std::to_string(band_idx)),
+                    p_ref_.parameters_.getParameter(zlp::PToneGain::kID + std::to_string(band_idx))
+                        ->convertTo0to1(0.f));
         band_helper::turnOnOffDynamic(p_ref_, band_idx, init_values[7] > .5f, max_db);
         base_.setSelectedBand(band_idx);
     }
