@@ -10,6 +10,85 @@
 #include "dragger_panel.hpp"
 
 namespace zlpanel {
+    class SplitGainDraggerAttachment final : private zlgui::dragger::Dragger::Listener {
+    public:
+        SplitGainDraggerAttachment(zlgui::dragger::Dragger& dragger,
+                                   juce::AudioProcessorValueTreeState& parameters,
+                                   const juce::String& gain_parameter_id,
+                                   const juce::String& freq_shift_parameter_id,
+                                   std::atomic<float>& base_gain,
+                                   std::atomic<float>& base_frequency,
+                                   std::atomic<float>& filter_type,
+                                   const juce::NormalisableRange<float> gain_range,
+                                   const juce::NormalisableRange<float> freq_range,
+                                   const float visual_y_offset) :
+            dragger_(dragger),
+            gain_parameter_(*parameters.getParameter(gain_parameter_id)),
+            freq_shift_parameter_(*parameters.getParameter(freq_shift_parameter_id)),
+            base_gain_(base_gain),
+            base_frequency_(base_frequency),
+            filter_type_(filter_type),
+            gain_range_(gain_range),
+            freq_range_(freq_range),
+            visual_y_offset_(visual_y_offset) {
+            dragger_.addListener(this);
+        }
+
+        ~SplitGainDraggerAttachment() override {
+            dragger_.removeListener(this);
+        }
+
+    private:
+        zlgui::dragger::Dragger& dragger_;
+        juce::RangedAudioParameter& gain_parameter_;
+        juce::RangedAudioParameter& freq_shift_parameter_;
+        std::atomic<float>& base_gain_;
+        std::atomic<float>& base_frequency_;
+        std::atomic<float>& filter_type_;
+        juce::NormalisableRange<float> gain_range_;
+        juce::NormalisableRange<float> freq_range_;
+        float visual_y_offset_{0.f};
+
+        void dragStarted(zlgui::dragger::Dragger*) override {
+            gain_parameter_.beginChangeGesture();
+            freq_shift_parameter_.beginChangeGesture();
+        }
+
+        void dragEnded(zlgui::dragger::Dragger*) override {
+            freq_shift_parameter_.endChangeGesture();
+            gain_parameter_.endChangeGesture();
+        }
+
+        void draggerValueChanged(zlgui::dragger::Dragger*) override {
+            const auto area_height = std::max(dragger_.getButtonArea().getHeight(), 1.f);
+            const auto visual_gain = gain_range_.convertFrom0to1(
+                std::clamp(dragger_.getYPortion(), 0.f, 1.f))
+                + visual_y_offset_ * (gain_range_.end - gain_range_.start) / area_height;
+
+            const auto filter_type = static_cast<zldsp::filter::FilterType>(
+                std::round(filter_type_.load(std::memory_order::relaxed)));
+            const auto gain_factor = filter_type == zldsp::filter::kLowShelf
+                || filter_type == zldsp::filter::kHighShelf
+                || filter_type == zldsp::filter::kTiltShelf
+                || filter_type == zldsp::filter::kFlatTilt ? .5f : 1.f;
+            const auto base_visual_gain = base_gain_.load(std::memory_order::relaxed) * gain_factor;
+            const auto gain_offset = std::clamp((visual_gain - base_visual_gain) / gain_factor,
+                                                zlp::PTransientGain::kRange.start,
+                                                zlp::PTransientGain::kRange.end);
+
+            const auto absolute_frequency = freq_range_.convertFrom0to1(
+                std::clamp(dragger_.getXPortion(), 0.f, 1.f));
+            const auto base_frequency = std::max(base_frequency_.load(std::memory_order::relaxed), 10.f);
+            const auto semitone_offset = std::clamp(
+                12.f * std::log2(std::max(absolute_frequency, 10.f) / base_frequency),
+                zlp::PTransientFreqShift::kRange.start,
+                zlp::PTransientFreqShift::kRange.end);
+
+            gain_parameter_.setValueNotifyingHost(gain_parameter_.convertTo0to1(gain_offset));
+            freq_shift_parameter_.setValueNotifyingHost(
+                freq_shift_parameter_.convertTo0to1(semitone_offset));
+        }
+    };
     DraggerPanel::DraggerPanel(PluginProcessor& p,
                                zlgui::UIState& base,
                                const multilingual::TooltipHelper& tooltip_helper) :
@@ -22,6 +101,8 @@ namespace zlpanel {
         draggers_(make_dragger_array(base.gui, std::make_index_sequence<zlp::kBandNum>())),
         target_dragger_(base.gui),
         side_dragger_(base.gui),
+        transient_dragger_(base.gui),
+        tone_dragger_(base.gui),
         float_pop_panel_(p, base, tooltip_helper),
         max_db_id_ref_(*p.parameters_NA_.getRawParameterValue(zlstate::PEQMaxDB::kID)),
         q_slider_(base.gui), slope_slider_(base.gui) {
@@ -51,6 +132,24 @@ namespace zlpanel {
         target_dragger_.setXYEnabled(false, true);
         target_dragger_.getLAF().setDraggerShape(zlgui::dragger::DraggerLookAndFeel::kUpDownArrow);
         addChildComponent(target_dragger_);
+
+        transient_dragger_.setScale(kDraggerScale * kDraggerSizeMultiplier * .86f,
+                                    kDraggerScale * kDraggerPaddingMultiplier);
+        transient_dragger_.getButton().addMouseListener(this, false);
+        transient_dragger_.setXYEnabled(true, true);
+        transient_dragger_.getLAF().setDraggerShape(zlgui::dragger::DraggerLookAndFeel::kRound);
+        transient_dragger_.getLAF().setLabel("T");
+        transient_dragger_.getButton().setTooltip("Transient-only EQ offset. Double-click to reset.");
+        addChildComponent(transient_dragger_);
+
+        tone_dragger_.setScale(kDraggerScale * kDraggerSizeMultiplier * .86f,
+                               kDraggerScale * kDraggerPaddingMultiplier);
+        tone_dragger_.getButton().addMouseListener(this, false);
+        tone_dragger_.setXYEnabled(true, true);
+        tone_dragger_.getLAF().setDraggerShape(zlgui::dragger::DraggerLookAndFeel::kRound);
+        tone_dragger_.getLAF().setLabel("S");
+        tone_dragger_.getButton().setTooltip("Tone/sustain-only EQ offset. Double-click to reset.");
+        addChildComponent(tone_dragger_);
 
         for (size_t band = 0; band < zlp::kBandNum; ++band) {
             draggers_[band].setBroughtToFrontOnMouseClick(true);
@@ -91,6 +190,8 @@ namespace zlpanel {
             mouse_event_panel_.setBounds(bound);
             target_dragger_.setBounds(bound);
             side_dragger_.setBounds(bound);
+            transient_dragger_.setBounds(bound);
+            tone_dragger_.setBounds(bound);
             for (size_t band = 0; band < zlp::kBandNum; ++band) {
                 draggers_[band].setBounds(bound);
                 updateDraggerBound(band);
@@ -161,6 +262,12 @@ namespace zlpanel {
 
             target_dragger_.getLAF().setColour(base_.gui.getColourMap1(band));
             side_dragger_.getLAF().setColour(base_.gui.getColourMap1(band));
+            transient_dragger_.getLAF().setColour(base_.gui.getColourMap1(band).brighter(.45f));
+            tone_dragger_.getLAF().setColour(base_.gui.getColourMap1(band).darker(.35f));
+            transient_dragger_.setVisible(dragger_y_enabled_[band]);
+            tone_dragger_.setVisible(dragger_y_enabled_[band]);
+            transient_dragger_.toFront(true);
+            tone_dragger_.toFront(true);
 
             updateDraggerBound(band);
             updateDraggerAttachment(band);
@@ -173,6 +280,8 @@ namespace zlpanel {
         } else {
             target_dragger_.setVisible(false);
             side_dragger_.setVisible(false);
+            transient_dragger_.setVisible(false);
+            tone_dragger_.setVisible(false);
         }
         float_pop_panel_.updateBand();
     }
@@ -220,6 +329,8 @@ namespace zlpanel {
         if (band == base_.getSelectedBand()) {
             target_dragger_.setVisible(is_dynamic_on);
             side_dragger_.setVisible(is_dynamic_on);
+            transient_dragger_.setVisible(filter_status != zlp::FilterStatus::kOff && dragger_y_enabled_[band]);
+            tone_dragger_.setVisible(filter_status != zlp::FilterStatus::kOff && dragger_y_enabled_[band]);
             float_pop_panel_.setTargetVisible(is_dynamic_on);
         }
         is_dynamic_on_[band] = is_dynamic_on;
@@ -295,6 +406,8 @@ namespace zlpanel {
         if (band == base_.getSelectedBand()) {
             target_dragger_.setButtonArea(bound);
             side_dragger_.setButtonArea(side_bound);
+            transient_dragger_.setButtonArea(bound);
+            tone_dragger_.setButtonArea(bound);
         }
     }
 
@@ -307,6 +420,25 @@ namespace zlpanel {
         dragger_gain_attachment_ = std::make_unique<zlgui::attachment::DraggerAttachment<false, false>>(
             draggers_[band], p_ref_.parameters_,
             zlp::PGain::kID + std::to_string(band), gain_range_, updater_);
+
+        transient_dragger_attachment_.reset();
+        transient_dragger_attachment_ = std::make_unique<SplitGainDraggerAttachment>(
+            transient_dragger_, p_ref_.parameters_,
+            zlp::PTransientGain::kID + std::to_string(band),
+            zlp::PTransientFreqShift::kID + std::to_string(band),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PGain::kID + std::to_string(band)),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PFreq::kID + std::to_string(band)),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PFilterType::kID + std::to_string(band)),
+            gain_range_, freq_range_, -8.f);
+        tone_dragger_attachment_.reset();
+        tone_dragger_attachment_ = std::make_unique<SplitGainDraggerAttachment>(
+            tone_dragger_, p_ref_.parameters_,
+            zlp::PToneGain::kID + std::to_string(band),
+            zlp::PToneFreqShift::kID + std::to_string(band),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PGain::kID + std::to_string(band)),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PFreq::kID + std::to_string(band)),
+            *p_ref_.parameters_.getRawParameterValue(zlp::PFilterType::kID + std::to_string(band)),
+            gain_range_, freq_range_, 8.f);
     }
 
     void DraggerPanel::updateTargetAttachment(const size_t band) {
@@ -404,6 +536,8 @@ namespace zlpanel {
             }
         }
         if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
+            const auto is_transient_dragger = event.originalComponent == &(transient_dragger_.getButton());
+            const auto is_tone_dragger = event.originalComponent == &(tone_dragger_.getButton());
             if (event.originalComponent == &(side_dragger_.getButton())) {
                 updateValue(p_ref_.parameters_.getParameter(zlp::PSideLink::kID + std::to_string(band)), 0.f);
             }
@@ -414,20 +548,29 @@ namespace zlpanel {
 
             if (event.originalComponent == &(draggers_[band].getButton())
                 || event.originalComponent == &(target_dragger_.getButton())
-                || event.originalComponent == &(side_dragger_.getButton())) {
+                || event.originalComponent == &(side_dragger_.getButton())
+                || is_transient_dragger || is_tone_dragger) {
 
                 const auto enter_solo_triggered = isEnterSoloTriggered(action_type, event.mods);
                 const auto exit_solo_triggered = isExitSoloTriggered(action_type, event.mods);
                 exit_solo_on_mouse_up_ = exit_solo_triggered;
 
                 if (enter_solo_triggered) {
-                    if (event.originalComponent == &(draggers_[band].getButton())
+                    if (is_transient_dragger) {
+                        base_.setSoloWholeIdx(2 * zlp::kBandNum);
+                        p_ref_.getController().setSplitAuditionMode(1);
+                    } else if (is_tone_dragger) {
+                        base_.setSoloWholeIdx(2 * zlp::kBandNum);
+                        p_ref_.getController().setSplitAuditionMode(2);
+                    } else if (event.originalComponent == &(draggers_[band].getButton())
                         || event.originalComponent == &(target_dragger_.getButton())) {
+                        p_ref_.getController().setSplitAuditionMode(0);
                         base_.setSoloWholeIdx(band);
                     } else if (event.originalComponent == &(side_dragger_.getButton())) {
                         base_.setSoloWholeIdx(zlp::kBandNum + band);
                     }
                 } else if (exit_solo_triggered) {
+                    p_ref_.getController().setSplitAuditionMode(0);
                     base_.setSoloWholeIdx(2 * zlp::kBandNum);
                 }
 
@@ -492,6 +635,7 @@ namespace zlpanel {
                 base_.setSelectedBand(zlp::kBandNum);
             }
         } else if (exit_solo_on_mouse_up_) {
+            p_ref_.getController().setSplitAuditionMode(0);
             base_.setSoloWholeIdx(2 * zlp::kBandNum);
         }
         exit_solo_on_mouse_up_ = false;
@@ -500,11 +644,24 @@ namespace zlpanel {
     void DraggerPanel::mouseDrag(const juce::MouseEvent& event) {
         if (event.originalComponent == &mouse_event_panel_) {
             lasso_component_.dragLasso(event);
+            return;
         }
     }
 
     void DraggerPanel::mouseDoubleClick(const juce::MouseEvent& event) {
         if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
+            if (event.originalComponent == &(transient_dragger_.getButton())) {
+                const auto suffix = std::to_string(band);
+                updateValue(p_ref_.parameters_.getParameter(zlp::PTransientGain::kID + suffix), 0.f);
+                updateValue(p_ref_.parameters_.getParameter(zlp::PTransientFreqShift::kID + suffix), 0.f);
+                return;
+            }
+            if (event.originalComponent == &(tone_dragger_.getButton())) {
+                const auto suffix = std::to_string(band);
+                updateValue(p_ref_.parameters_.getParameter(zlp::PToneGain::kID + suffix), 0.f);
+                updateValue(p_ref_.parameters_.getParameter(zlp::PToneFreqShift::kID + suffix), 0.f);
+                return;
+            }
             const auto action_type = event.mods.isRightButtonDown()
                 ? zlgui::MouseActionType::kRightDoubleClick
                 : zlgui::MouseActionType::kLeftDoubleClick;
@@ -572,7 +729,9 @@ namespace zlpanel {
     void DraggerPanel::mouseEnter(const juce::MouseEvent& event) {
         if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
             if (event.originalComponent == &(draggers_[band].getButton())
-                || event.originalComponent == &(target_dragger_.getButton())) {
+                || event.originalComponent == &(target_dragger_.getButton())
+                || event.originalComponent == &(transient_dragger_.getButton())
+                || event.originalComponent == &(tone_dragger_.getButton())) {
                 q_attachment_ = std::make_unique<zlgui::attachment::SliderAttachment<true>>(
                     q_slider_, p_ref_.parameters_, zlp::PQ::kID + std::to_string(band), updater_);
                 q_attachment_->updateComponent();
@@ -611,7 +770,9 @@ namespace zlpanel {
                 || (band < zlp::kBandNum
                     && filter_types_[band] == zldsp::filter::kFlatGain
                     && (event.originalComponent == &draggers_[band].getButton()
-                        || event.originalComponent == &target_dragger_.getButton()))) {
+                        || event.originalComponent == &target_dragger_.getButton()
+                        || event.originalComponent == &transient_dragger_.getButton()
+                        || event.originalComponent == &tone_dragger_.getButton()))) {
                 return;
             }
             if (event.mods.isCommandDown()) {

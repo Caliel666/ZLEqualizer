@@ -33,12 +33,43 @@ namespace zlpanel {
         }
         p_ref_.parameters_.addParameterListener(zlp::PGainScale::kID, this);
 
+        transient_audition_button_.setRadioGroupId(8123);
+        both_audition_button_.setRadioGroupId(8123);
+        tone_audition_button_.setRadioGroupId(8123);
+        transient_audition_button_.setClickingTogglesState(true);
+        both_audition_button_.setClickingTogglesState(true);
+        tone_audition_button_.setClickingTogglesState(true);
+        transient_audition_button_.setTooltip("Audition transient component only");
+        both_audition_button_.setTooltip("Audition the normal combined output");
+        tone_audition_button_.setTooltip("Audition tone/sustain component only");
+        transient_audition_button_.onClick = [this] {
+            base_.setSoloWholeIdx(2 * zlp::kBandNum);
+            p_ref_.getController().setSplitAuditionMode(1);
+        };
+        both_audition_button_.onClick = [this] {
+            base_.setSoloWholeIdx(2 * zlp::kBandNum);
+            p_ref_.getController().setSplitAuditionMode(0);
+        };
+        tone_audition_button_.onClick = [this] {
+            base_.setSoloWholeIdx(2 * zlp::kBandNum);
+            p_ref_.getController().setSplitAuditionMode(2);
+        };
+        both_audition_button_.setToggleState(true, juce::dontSendNotification);
+        addAndMakeVisible(transient_audition_button_);
+        addAndMakeVisible(both_audition_button_);
+        addAndMakeVisible(tone_audition_button_);
+        transient_audition_button_.setAlwaysOnTop(true);
+        both_audition_button_.setAlwaysOnTop(true);
+        tone_audition_button_.setAlwaysOnTop(true);
+
         xs_.resize(kNumPoints);
         ws_.resize(kNumPoints);
         for (size_t i = 0; i < zlp::kBandNum; ++i) {
             base_mags_[i].resize(kNumPoints);
             target_mags_[i].resize(kNumPoints);
             dynamic_mags_[i].resize(kNumPoints);
+            transient_mags_[i].resize(kNumPoints);
+            tone_mags_[i].resize(kNumPoints);
         }
         for (size_t i = 0; i < 5; ++i) {
             sum_mags_[i].resize(kNumPoints);
@@ -71,7 +102,10 @@ namespace zlpanel {
         auto band = base_.getSelectedBand();
         const auto target = band < zlp::kBandNum && component == &dragger_panel_.getTargetDragger().getButton();
         const auto side = band < zlp::kBandNum && component == &dragger_panel_.getSideDragger().getButton();
-        if (!target && !side) {
+        const auto transient = band < zlp::kBandNum
+            && component == &dragger_panel_.getTransientDragger().getButton();
+        const auto tone = band < zlp::kBandNum && component == &dragger_panel_.getToneDragger().getButton();
+        if (!target && !side && !transient && !tone) {
             for (band = 0; band < zlp::kBandNum; ++band) {
                 if (component == &dragger_panel_.getDragger(band).getButton()) {
                     break;
@@ -86,7 +120,19 @@ namespace zlpanel {
             return false;
         }
         frequency = getValue(p_ref_.parameters_, (side ? zlp::PSideFreq::kID : zlp::PFreq::kID) + suffix);
-        gain = getValue(p_ref_.parameters_, (target ? zlp::PTargetGain::kID : zlp::PGain::kID) + suffix);
+        if (transient) {
+            frequency *= std::exp2(getValue(
+                p_ref_.parameters_, zlp::PTransientFreqShift::kID + suffix) / 12.f);
+            gain = getValue(p_ref_.parameters_, zlp::PGain::kID + suffix)
+                + getValue(p_ref_.parameters_, zlp::PTransientGain::kID + suffix);
+        } else if (tone) {
+            frequency *= std::exp2(getValue(
+                p_ref_.parameters_, zlp::PToneFreqShift::kID + suffix) / 12.f);
+            gain = getValue(p_ref_.parameters_, zlp::PGain::kID + suffix)
+                + getValue(p_ref_.parameters_, zlp::PToneGain::kID + suffix);
+        } else {
+            gain = getValue(p_ref_.parameters_, (target ? zlp::PTargetGain::kID : zlp::PGain::kID) + suffix);
+        }
         return std::isfinite(frequency) && std::isfinite(gain);
     }
 
@@ -99,6 +145,31 @@ namespace zlpanel {
         sum_panel_.paintDifferentStereo(g);
         single_panel_.paintSameStereo(g);
         sum_panel_.paintSameStereo(g);
+
+        if (const auto band = base_.getSelectedBand();
+            band < zlp::kBandNum
+            && filter_status_[band].load(std::memory_order::relaxed) != zlp::FilterStatus::kOff) {
+            juce::Path transient_path;
+            juce::Path tone_path;
+            const auto curve_width = width_.load(std::memory_order::relaxed);
+            for (size_t i = 0; i < kNumPoints; ++i) {
+                const auto x = curve_width * static_cast<float>(i) / static_cast<float>(kNumPoints - 1);
+                const auto transient_y = transient_curve_y_[band][i].load(std::memory_order_relaxed);
+                const auto tone_y = tone_curve_y_[band][i].load(std::memory_order_relaxed);
+                if (i == 0) {
+                    transient_path.startNewSubPath(x, transient_y);
+                    tone_path.startNewSubPath(x, tone_y);
+                } else {
+                    transient_path.lineTo(x, transient_y);
+                    tone_path.lineTo(x, tone_y);
+                }
+            }
+            const auto colour = base_.gui.getColourMap1(band);
+            g.setColour(colour.brighter(.45f).withAlpha(.95f));
+            g.strokePath(transient_path, juce::PathStrokeType(1.5f));
+            g.setColour(colour.darker(.35f).withAlpha(.95f));
+            g.strokePath(tone_path, juce::PathStrokeType(1.5f));
+        }
         if (should_alpha) {
             g.endTransparencyLayer();
         }
@@ -111,6 +182,11 @@ namespace zlpanel {
         single_panel_.setBounds(bound);
         sum_panel_.setBounds(bound);
         dragger_panel_.setBounds(bound);
+        auto audition_bounds = bound.reduced(4).removeFromTop(std::max(20, static_cast<int>(font_size * 1.55f)));
+        const auto button_width = std::min(82, audition_bounds.getWidth() / 3);
+        tone_audition_button_.setBounds(audition_bounds.removeFromRight(button_width));
+        both_audition_button_.setBounds(audition_bounds.removeFromRight(button_width));
+        transient_audition_button_.setBounds(audition_bounds.removeFromRight(button_width));
         solo_panel_.setBounds(bound);
         side_y_ = static_cast<float>(bound.getHeight() - bottom_height) - font_size * kDraggerScale * .5f;
         width_.store(static_cast<float>(bound.getWidth()), std::memory_order::relaxed);
@@ -142,6 +218,7 @@ namespace zlpanel {
         updateFloatingPosition();
         updateTargetPosition();
         updateSidePosition();
+        updateComponentPositions();
     }
 
     void ResponsePanel::updateSoloPosition() {
@@ -172,6 +249,17 @@ namespace zlpanel {
             dragger_panel_.getSideDragger().updateButton(
             {side_points_[band][0].load(std::memory_order::relaxed),
              side_y_});
+        }
+    }
+
+    void ResponsePanel::updateComponentPositions() {
+        if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
+            const auto transient_x = component_points_[band][0].load(std::memory_order_relaxed);
+            const auto transient_y = component_points_[band][1].load(std::memory_order_relaxed);
+            const auto tone_x = component_points_[band][2].load(std::memory_order_relaxed);
+            const auto tone_y = component_points_[band][3].load(std::memory_order_relaxed);
+            dragger_panel_.getTransientDragger().updateButton({transient_x, transient_y - 8.f});
+            dragger_panel_.getToneDragger().updateButton({tone_x, tone_y + 8.f});
         }
     }
 
@@ -214,6 +302,7 @@ namespace zlpanel {
         updateFloatingPosition();
         updateTargetPosition();
         updateSidePosition();
+        updateComponentPositions();
         for (int lr = 0; lr < 5; ++lr) {
             if (selected_band < zlp::kBandNum) {
                 sum_panel_.updateDrawingParas(lr, lr == selected_lr_mode);
@@ -234,6 +323,7 @@ namespace zlpanel {
         updateFloatingPosition();
         updateTargetPosition();
         updateSidePosition();
+        updateComponentPositions();
     }
 
     void ResponsePanel::updateSampleRate(const double sample_rate) {
@@ -326,6 +416,18 @@ namespace zlpanel {
             original_base_gains_[band].store(value, std::memory_order::relaxed);
             empty_[band].setGain(
                 std::clamp(value * gain_scale_.load(std::memory_order::relaxed) / 100.f, -30.f, 30.f));
+            to_update_empty_flags_[band].signal();
+        } else if (parameter_ID.startsWith(zlp::PTransientGain::kID)) {
+            original_transient_gains_[band].store(value, std::memory_order::relaxed);
+            to_update_empty_flags_[band].signal();
+        } else if (parameter_ID.startsWith(zlp::PToneGain::kID)) {
+            original_tone_gains_[band].store(value, std::memory_order::relaxed);
+            to_update_empty_flags_[band].signal();
+        } else if (parameter_ID.startsWith(zlp::PTransientFreqShift::kID)) {
+            original_transient_freq_shifts_[band].store(value, std::memory_order_relaxed);
+            to_update_empty_flags_[band].signal();
+        } else if (parameter_ID.startsWith(zlp::PToneFreqShift::kID)) {
+            original_tone_freq_shifts_[band].store(value, std::memory_order_relaxed);
             to_update_empty_flags_[band].signal();
         } else if (parameter_ID.startsWith(zlp::PQ::kID)) {
             empty_[band].setQ(value);
@@ -426,6 +528,12 @@ namespace zlpanel {
             for (auto& f : ideal_) {
                 f.prepare(sample_rate);
             }
+            for (auto& f : transient_ideal_) {
+                f.prepare(sample_rate);
+            }
+            for (auto& f : tone_ideal_) {
+                f.prepare(sample_rate);
+            }
             for (auto& f : side_ideal_) {
                 f.prepare(sample_rate);
             }
@@ -507,8 +615,62 @@ namespace zlpanel {
                     points_[band][1].store(static_cast<float>(left_x), std::memory_order::relaxed);
                     points_[band][2].store(static_cast<float>(right_x), std::memory_order::relaxed);
                     points_[band][3].store(c_k_ * center_square_magnitude + c_b_, std::memory_order::relaxed);
-                    para.gain = original_base_gains_[band].load(std::memory_order::relaxed);
+                    const auto base_raw_gain = original_base_gains_[band].load(std::memory_order::relaxed);
+                    para.gain = base_raw_gain;
                     points_[band][4].store(c_k_ * getButtonMag(para) + c_b_, std::memory_order::relaxed);
+
+                    auto transient_button_para = para;
+                    transient_button_para.freq = std::clamp(
+                        para.freq * std::exp2(original_transient_freq_shifts_[band].load(
+                            std::memory_order_relaxed) / 12.f), 10.0, c_slider_max_);
+                    transient_button_para.gain += original_transient_gains_[band].load(std::memory_order_relaxed);
+                    auto tone_button_para = para;
+                    tone_button_para.freq = std::clamp(
+                        para.freq * std::exp2(original_tone_freq_shifts_[band].load(
+                            std::memory_order_relaxed) / 12.f), 10.0, c_slider_max_);
+                    tone_button_para.gain += original_tone_gains_[band].load(std::memory_order_relaxed);
+                    const auto transient_x = std::get<1>(getLeftCenterRightX(transient_button_para));
+                    const auto tone_x = std::get<1>(getLeftCenterRightX(tone_button_para));
+                    component_points_[band][0].store(transient_x, std::memory_order_relaxed);
+                    component_points_[band][1].store(
+                        c_k_ * getButtonMag(transient_button_para) + c_b_, std::memory_order_relaxed);
+                    component_points_[band][2].store(tone_x, std::memory_order_relaxed);
+                    component_points_[band][3].store(
+                        c_k_ * getButtonMag(tone_button_para) + c_b_, std::memory_order_relaxed);
+
+                    const auto transient_offset = static_cast<double>(
+                        original_transient_gains_[band].load(std::memory_order::relaxed)
+                        * gain_scale_.load(std::memory_order::relaxed) / 100.f);
+                    auto transient_para = ideal_[band].getParas();
+                    transient_para.freq = std::clamp(
+                        transient_para.freq * std::exp2(original_transient_freq_shifts_[band].load(
+                            std::memory_order_relaxed) / 12.f), 10.0, c_slider_max_);
+                    transient_para.gain += transient_offset;
+                    transient_ideal_[band].setScale(pass_scales_[band].load(std::memory_order::relaxed));
+                    transient_ideal_[band].forceUpdate(transient_para);
+                    transient_ideal_[band].updateMagnitudeSquare(ws_, transient_mags_[band]);
+                    zldsp::vector::sqr_mag_to_db(transient_mags_[band].data(), transient_mags_[band].size());
+                    for (size_t point = 0; point < kNumPoints; ++point) {
+                        transient_curve_y_[band][point].store(
+                            c_k_ * transient_mags_[band][point] + c_b_, std::memory_order::relaxed);
+                    }
+
+                    const auto tone_offset = static_cast<double>(
+                        original_tone_gains_[band].load(std::memory_order::relaxed)
+                        * gain_scale_.load(std::memory_order::relaxed) / 100.f);
+                    auto tone_para = ideal_[band].getParas();
+                    tone_para.freq = std::clamp(
+                        tone_para.freq * std::exp2(original_tone_freq_shifts_[band].load(
+                            std::memory_order_relaxed) / 12.f), 10.0, c_slider_max_);
+                    tone_para.gain += tone_offset;
+                    tone_ideal_[band].setScale(pass_scales_[band].load(std::memory_order::relaxed));
+                    tone_ideal_[band].forceUpdate(tone_para);
+                    tone_ideal_[band].updateMagnitudeSquare(ws_, tone_mags_[band]);
+                    zldsp::vector::sqr_mag_to_db(tone_mags_[band].data(), tone_mags_[band].size());
+                    for (size_t point = 0; point < kNumPoints; ++point) {
+                        tone_curve_y_[band][point].store(
+                            c_k_ * tone_mags_[band][point] + c_b_, std::memory_order::relaxed);
+                    }
 
                     if (threadShouldExit()) {
                         return false;
@@ -634,5 +796,8 @@ namespace zlpanel {
 
     void ResponsePanel::turnMatchON(const bool match_on) {
         dragger_panel_.setVisible(!match_on);
+        transient_audition_button_.setVisible(!match_on);
+        both_audition_button_.setVisible(!match_on);
+        tone_audition_button_.setVisible(!match_on);
     }
 }

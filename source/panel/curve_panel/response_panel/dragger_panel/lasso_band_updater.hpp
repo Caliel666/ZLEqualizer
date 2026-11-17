@@ -33,6 +33,7 @@ namespace zlpanel {
         static constexpr std::array kScaleIDs{
             zlp::PFreq::kID,
             zlp::PGain::kID, zlp::PTargetGain::kID,
+            zlp::PTransientGain::kID, zlp::PToneGain::kID,
             zlp::PQ::kID,
             zlp::PAttack::kID, zlp::PRelease::kID
         };
@@ -45,7 +46,8 @@ namespace zlpanel {
         };
 
         static constexpr std::array kShiftIDs{
-            zlp::PThreshold::kID, zlp::PKneeW::kID
+            zlp::PThreshold::kID, zlp::PKneeW::kID,
+            zlp::PTransientFreqShift::kID, zlp::PToneFreqShift::kID
         };
 
         zlchore::thread::Notifier whole_to_update_{};

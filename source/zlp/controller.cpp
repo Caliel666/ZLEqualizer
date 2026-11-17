@@ -65,10 +65,23 @@ namespace zlp {
 
     void Controller::prepare(const double sample_rate, const size_t max_num_samples) {
         c_filter_structure_ = kMinimum;
+        split_sample_rate_ = std::max(sample_rate, 1.0);
 
         side_buffers[0].resize(max_num_samples);
         side_buffers[1].resize(max_num_samples);
         side_copy_pointers_.reserve(2);
+
+        for (size_t channel = 0; channel < 2; ++channel) {
+            split_input_buffers_[channel].resize(max_num_samples);
+            split_transient_buffers_[channel].resize(max_num_samples);
+            split_tone_buffers_[channel].resize(max_num_samples);
+            split_mask_buffers_[channel].resize(max_num_samples);
+            split_input_pointers_[channel] = split_input_buffers_[channel].data();
+            split_transient_pointers_[channel] = split_transient_buffers_[channel].data();
+            split_tone_pointers_[channel] = split_tone_buffers_[channel].data();
+            split_mask_pointers_[channel] = split_mask_buffers_[channel].data();
+        }
+        split_detector_.prepare(sample_rate);
 
         for (size_t i = 0; i < kBandNum; ++i) {
             updateFilterParameters(i);
@@ -82,6 +95,9 @@ namespace zlp {
             parallel_filters_[i].getFilter().setScale<true>(c_scales_[i]);
             tdf_filters_[i].prepare(sample_rate, 2, max_num_samples);
             tdf_filters_[i].getFilter().updateParas(filter_paras_[i]);
+            transient_split_filters_[i].prepare(sample_rate, 2, max_num_samples);
+            tone_split_filters_[i].prepare(sample_rate, 2, max_num_samples);
+            updateSplitFilterParameters(i);
             svf_filters_[i].prepare(sample_rate, 2, max_num_samples);
             svf_filters_[i].getFilter().updateParas(filter_paras_[i]);
             parallel_filters_[i].prepare(sample_rate, 2, max_num_samples);
@@ -153,6 +169,7 @@ namespace zlp {
             }
         }
         prepareFilters();
+        prepareSplitFilters();
         if (c_correction_enabled_) {
             if (to_update_correction_indices_) {
                 prepareCorrectionIndices();
@@ -295,6 +312,7 @@ namespace zlp {
                         tdf_filters_[i].getFilter().cacheDynPara();
                     }
                 }
+                updateSplitFilterParameters(i);
                 res_update_flags_[i] = true;
             }
         }
@@ -574,6 +592,154 @@ namespace zlp {
         }
     }
 
+
+    void Controller::updateSplitFilterParameters(const size_t i) {
+        auto transient_paras = filter_paras_[i];
+        auto tone_paras = filter_paras_[i];
+        transient_paras.gain = transient_split_gains_[i].load(std::memory_order::relaxed);
+        tone_paras.gain = tone_split_gains_[i].load(std::memory_order::relaxed);
+        const auto transient_freq_shift = transient_split_freq_shifts_[i].load(std::memory_order::relaxed);
+        const auto tone_freq_shift = tone_split_freq_shifts_[i].load(std::memory_order::relaxed);
+        const auto max_freq = split_sample_rate_ * 0.49;
+        transient_paras.freq = std::clamp(
+            filter_paras_[i].freq * std::exp2(transient_freq_shift / 12.0), 10.0, max_freq);
+        tone_paras.freq = std::clamp(
+            filter_paras_[i].freq * std::exp2(tone_freq_shift / 12.0), 10.0, max_freq);
+        transient_split_filters_[i].setScale(c_scales_[i]);
+        tone_split_filters_[i].setScale(c_scales_[i]);
+        transient_split_filters_[i].updateParas(transient_paras);
+        tone_split_filters_[i].updateParas(tone_paras);
+
+        const auto supports_gain_offset = filter_paras_[i].filter_type == zldsp::filter::kPeak
+            || filter_paras_[i].filter_type == zldsp::filter::kLowShelf
+            || filter_paras_[i].filter_type == zldsp::filter::kHighShelf
+            || filter_paras_[i].filter_type == zldsp::filter::kTiltShelf
+            || filter_paras_[i].filter_type == zldsp::filter::kFlatTilt
+            || filter_paras_[i].filter_type == zldsp::filter::kFlatGain;
+        const auto transient_enabled = supports_gain_offset && std::abs(transient_paras.gain) > 1.0e-5;
+        const auto tone_enabled = supports_gain_offset && std::abs(tone_paras.gain) > 1.0e-5;
+        if (transient_enabled != c_transient_split_on_[i]) {
+            transient_split_filters_[i].reset();
+        }
+        if (tone_enabled != c_tone_split_on_[i]) {
+            tone_split_filters_[i].reset();
+        }
+        c_transient_split_on_[i] = transient_enabled;
+        c_tone_split_on_[i] = tone_enabled;
+    }
+
+    void Controller::prepareSplitFilters() {
+        for (size_t i = 0; i < kBandNum; ++i) {
+            if (split_update_flags_[i].check()) {
+                updateSplitFilterParameters(i);
+            }
+        }
+        c_split_audition_mode_ = split_audition_mode_.load(std::memory_order::relaxed);
+    }
+
+    void Controller::processSplitFilters(
+        std::array<zldsp::filter::TDF<double, kFilterSize>, kBandNum>& filters,
+        std::array<double*, 2> buffer, const size_t num_samples, const bool transient) {
+        const auto& enabled = transient ? c_transient_split_on_ : c_tone_split_on_;
+        for (const size_t i : not_off_total_) {
+            if (!enabled[i] || c_filter_status_[i] != FilterStatus::kOn) {
+                continue;
+            }
+            switch (c_lrms_[i]) {
+            case FilterStereo::kStereo:
+                filters[i].process(std::span<double*>(buffer.data(), 2), num_samples);
+                break;
+            case FilterStereo::kLeft:
+                filters[i].process(std::span<double*>(&buffer[0], 1), num_samples);
+                break;
+            case FilterStereo::kRight:
+                filters[i].process(std::span<double*>(&buffer[1], 1), num_samples);
+                break;
+            case FilterStereo::kMid:
+                zldsp::splitter::InplaceMSSplitter<double>::split(buffer[0], buffer[1], num_samples);
+                filters[i].process(std::span<double*>(&buffer[0], 1), num_samples);
+                zldsp::splitter::InplaceMSSplitter<double>::combine(buffer[0], buffer[1], num_samples);
+                break;
+            case FilterStereo::kSide:
+                zldsp::splitter::InplaceMSSplitter<double>::split(buffer[0], buffer[1], num_samples);
+                filters[i].process(std::span<double*>(&buffer[1], 1), num_samples);
+                zldsp::splitter::InplaceMSSplitter<double>::combine(buffer[0], buffer[1], num_samples);
+                break;
+            }
+        }
+    }
+
+    void Controller::prepareSplitBuffers(const std::array<double*, 2> main_pointers,
+                                         const size_t num_samples) {
+        auto should_process_split = c_split_audition_mode_ != 0;
+        if (!should_process_split) {
+            for (size_t i = 0; i < kBandNum; ++i) {
+                if (c_transient_split_on_[i] || c_tone_split_on_[i]) {
+                    should_process_split = true;
+                    break;
+                }
+            }
+        }
+        if (should_process_split && !split_block_active_) {
+            // The detector is dormant while no component processing is needed.
+            // Reset on re-entry so an old envelope cannot create a stale mask.
+            split_detector_.reset();
+        }
+        split_block_active_ = should_process_split;
+        if (!split_block_active_) {
+            return;
+        }
+
+        for (size_t channel = 0; channel < 2; ++channel) {
+            zldsp::vector::copy(split_input_pointers_[channel], main_pointers[channel], num_samples);
+        }
+        split_detector_.process(split_input_pointers_, split_transient_pointers_,
+                                split_tone_pointers_, num_samples);
+        for (size_t channel = 0; channel < 2; ++channel) {
+            for (size_t sample = 0; sample < num_samples; ++sample) {
+                const auto input = split_input_pointers_[channel][sample];
+                split_mask_pointers_[channel][sample] = std::abs(input) > 1.0e-12
+                    ? std::clamp(split_transient_pointers_[channel][sample] / input, 0.0, 1.0)
+                    : 0.0;
+            }
+        }
+        processSplitFilters(transient_split_filters_, split_transient_pointers_, num_samples, true);
+        processSplitFilters(tone_split_filters_, split_tone_pointers_, num_samples, false);
+    }
+
+    void Controller::applySplitOutput(const std::array<double*, 2> main_pointers,
+                                      const size_t num_samples) {
+        if (!split_block_active_) {
+            return;
+        }
+        if (c_split_audition_mode_ == 1 || c_split_audition_mode_ == 2) {
+            const auto audition_transient = c_split_audition_mode_ == 1;
+            for (size_t channel = 0; channel < 2; ++channel) {
+                for (size_t sample = 0; sample < num_samples; ++sample) {
+                    const auto mask = split_mask_pointers_[channel][sample];
+                    const auto component_mask = audition_transient ? mask : 1.0 - mask;
+                    const auto component_input = split_input_pointers_[channel][sample] * component_mask;
+                    const auto component_filtered = audition_transient
+                        ? split_transient_pointers_[channel][sample]
+                        : split_tone_pointers_[channel][sample];
+                    // Keep the shared EQ response while monitoring one half of
+                    // the split, then add only that component's independent EQ
+                    // correction.
+                    main_pointers[channel][sample] =
+                        main_pointers[channel][sample] * component_mask
+                        + component_filtered - component_input;
+                }
+            }
+            return;
+        }
+        for (size_t channel = 0; channel < 2; ++channel) {
+            for (size_t i = 0; i < num_samples; ++i) {
+                main_pointers[channel][i] += split_transient_pointers_[channel][i]
+                    + split_tone_pointers_[channel][i] - split_input_pointers_[channel][i];
+            }
+        }
+    }
+
     template <bool bypass>
     void Controller::process(std::array<double*, 2> main_pointers, std::array<double*, 2> side_pointers,
                              const size_t num_samples) {
@@ -651,6 +817,9 @@ namespace zlp {
             }
             pre_square_sum_ /= static_cast<double>(num_samples);
         }
+        if constexpr (!bypass) {
+            prepareSplitBuffers(main_pointers, num_samples);
+        }
         switch (c_filter_structure_) {
         case kMinimum:
         case kMatched:
@@ -672,6 +841,9 @@ namespace zlp {
                 parallel_filters_, main_pointers, side_pointers, num_samples);
             break;
         }
+        }
+        if constexpr (!bypass) {
+            applySplitOutput(main_pointers, num_samples);
         }
         if (c_sgc_on_) {
             sgc_gain_.process(main_pointers, num_samples);

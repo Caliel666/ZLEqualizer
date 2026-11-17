@@ -29,6 +29,7 @@
 #include "../dsp/analyzer/analyzer_base/analyzer_sender_base.hpp"
 // #include "../dsp/eq_match/eq_match_analyzer.hpp"
 #include "../dsp/splitter/inplace_ms_splitter.hpp"
+#include "../dsp/splitter/point_transient_tone_splitter.hpp"
 #include "../dsp/histogram/histogram.hpp"
 
 #include "../dsp/loudness/lufs_matcher.hpp"
@@ -63,6 +64,26 @@ namespace zlp {
         void process(std::array<double*, 2> main_pointers,
                      std::array<double*, 2> side_pointers,
                      size_t num_samples);
+
+        void setSplitBandParameters(const size_t idx, const double transient_db, const double tone_db,
+                                    const double transient_freq_shift, const double tone_freq_shift) {
+            transient_split_gains_[idx].store(std::clamp(transient_db, -30.0, 30.0),
+                                               std::memory_order::relaxed);
+            tone_split_gains_[idx].store(std::clamp(tone_db, -30.0, 30.0),
+                                         std::memory_order::relaxed);
+            transient_split_freq_shifts_[idx].store(std::clamp(transient_freq_shift, -24.0, 24.0),
+                                                     std::memory_order::relaxed);
+            tone_split_freq_shifts_[idx].store(std::clamp(tone_freq_shift, -24.0, 24.0),
+                                               std::memory_order::relaxed);
+            split_update_flags_[idx].signal();
+            to_update_.signal();
+        }
+
+        // 0 = normal mix, 1 = transient monitor, 2 = tone/sustain monitor.
+        void setSplitAuditionMode(const int mode) {
+            split_audition_mode_.store(std::clamp(mode, 0, 2), std::memory_order::relaxed);
+            to_update_.signal();
+        }
 
         void setFilterStructure(const FilterStructure filter_structure) {
             filter_structure_.store(filter_structure, std::memory_order::relaxed);
@@ -323,6 +344,30 @@ namespace zlp {
         std::array<zlchore::thread::Notifier, kBandNum> side_empty_update_flags_{};
         std::array<zldsp::filter::FilterParameters, kBandNum> filter_paras_{};
         std::array<zldsp::filter::FilterParameters, kBandNum> side_filter_paras_{};
+
+        // Independent, additive transient/tone correction banks. The original
+        // EQ remains the common curve and is never processed twice.
+        std::array<std::atomic<double>, kBandNum> transient_split_gains_{};
+        std::array<std::atomic<double>, kBandNum> tone_split_gains_{};
+        std::array<std::atomic<double>, kBandNum> transient_split_freq_shifts_{};
+        std::array<std::atomic<double>, kBandNum> tone_split_freq_shifts_{};
+        double split_sample_rate_{48000.0};
+        std::array<zlchore::thread::Notifier, kBandNum> split_update_flags_{};
+        std::array<bool, kBandNum> c_transient_split_on_{};
+        std::array<bool, kBandNum> c_tone_split_on_{};
+        std::array<zldsp::filter::TDF<double, kFilterSize>, kBandNum> transient_split_filters_{};
+        std::array<zldsp::filter::TDF<double, kFilterSize>, kBandNum> tone_split_filters_{};
+        std::atomic<int> split_audition_mode_{0};
+        int c_split_audition_mode_{0};
+        zldsp::splitter::PointTransientToneSplitter<double> split_detector_{};
+        std::array<std::vector<double>, 2> split_input_buffers_{};
+        std::array<std::vector<double>, 2> split_transient_buffers_{};
+        std::array<std::vector<double>, 2> split_tone_buffers_{};
+        std::array<std::vector<double>, 2> split_mask_buffers_{};
+        std::array<double*, 2> split_input_pointers_{};
+        std::array<double*, 2> split_transient_pointers_{};
+        std::array<double*, 2> split_tone_pointers_{};
+        std::array<double*, 2> split_mask_pointers_{};
         std::array<std::atomic<bool>, kBandNum> pass_scale_on_{};
         std::array<std::atomic<double>, kBandNum> scales_ = make_array_of<std::atomic<double>, kBandNum>(1.0);
         std::array<double, kBandNum> c_scales_{};
@@ -494,6 +539,19 @@ namespace zlp {
         void prepareLRMS();
 
         void updateFilterParameters(size_t i);
+
+        void updateSplitFilterParameters(size_t i);
+
+        void prepareSplitFilters();
+
+        void processSplitFilters(std::array<zldsp::filter::TDF<double, kFilterSize>, kBandNum>& filters,
+                                 std::array<double*, 2> buffer, size_t num_samples, bool transient);
+
+        void prepareSplitBuffers(std::array<double*, 2> main_pointers, size_t num_samples);
+
+        void applySplitOutput(std::array<double*, 2> main_pointers, size_t num_samples);
+
+        bool split_block_active_{false};
 
         void prepareFilters();
 

@@ -18,6 +18,8 @@
 #include "right_click_panel.hpp"
 
 namespace zlpanel {
+    class SplitGainDraggerAttachment;
+
     class DraggerPanel final : public juce::Component,
                                private juce::ValueTree::Listener,
                                private juce::LassoSource<size_t>,
@@ -54,6 +56,14 @@ namespace zlpanel {
 
         zlgui::dragger::Dragger& getSideDragger() {
             return side_dragger_;
+        }
+
+        zlgui::dragger::Dragger& getTransientDragger() {
+            return transient_dragger_;
+        }
+
+        zlgui::dragger::Dragger& getToneDragger() {
+            return tone_dragger_;
         }
 
         FloatPopPanel& getFloatPopPanel() {
@@ -95,6 +105,8 @@ namespace zlpanel {
         std::array<zlgui::dragger::Dragger, zlp::kBandNum> draggers_;
         zlgui::dragger::Dragger target_dragger_;
         zlgui::dragger::Dragger side_dragger_;
+        zlgui::dragger::Dragger transient_dragger_;
+        zlgui::dragger::Dragger tone_dragger_;
 
         size_t previous_solo_whole_idx_{2 * zlp::kBandNum};
         std::array<bool, zlp::kBandNum> dragger_y_enabled_{};
@@ -125,6 +137,8 @@ namespace zlpanel {
         float solo_gain_drag_height_{1.f};
         bool solo_gain_drag_active_{false};
         bool exit_solo_on_mouse_up_{false};
+        std::unique_ptr<SplitGainDraggerAttachment> transient_dragger_attachment_;
+        std::unique_ptr<SplitGainDraggerAttachment> tone_dragger_attachment_;
 
         zlgui::slider::SnappingSlider q_slider_;
         std::unique_ptr<zlgui::attachment::SliderAttachment<true>> q_attachment_;
