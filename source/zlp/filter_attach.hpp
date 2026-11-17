@@ -31,6 +31,8 @@ namespace zlp {
         std::atomic<float>& gain_;
         std::atomic<float>& transient_gain_;
         std::atomic<float>& tone_gain_;
+        std::atomic<float>& transient_freq_shift_;
+        std::atomic<float>& tone_freq_shift_;
         zlchore::thread::Notifier& update_flag_;
         zlchore::thread::Notifier& whole_update_flag_;
 
@@ -43,7 +45,7 @@ namespace zlp {
         static constexpr std::array kIDs{
             PFilterStatus::kID, PFilterType::kID, POrder::kID, PLRMode::kID,
             PFreq::kID, PGain::kID, PTransientGain::kID, PToneGain::kID,
-            PQ::kID, PPassScaleON::kID, PPassScaleV::kID,
+            PTransientFreqShift::kID, PToneFreqShift::kID, PQ::kID, PPassScaleON::kID, PPassScaleV::kID,
             PSideLink::kID,
         };
 
