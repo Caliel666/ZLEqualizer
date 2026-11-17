@@ -33,6 +33,7 @@ namespace zlpanel {
         static constexpr std::array kScaleIDs{
             zlp::PFreq::kID,
             zlp::PGain::kID, zlp::PTargetGain::kID,
+            zlp::PTransientGain::kID, zlp::PToneGain::kID,
             zlp::PQ::kID,
             zlp::PAttack::kID, zlp::PRelease::kID
         };
