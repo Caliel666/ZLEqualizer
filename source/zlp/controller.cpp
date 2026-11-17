@@ -599,8 +599,23 @@ namespace zlp {
         tone_split_filters_[i].setScale(c_scales_[i]);
         transient_split_filters_[i].updateParas(transient_paras);
         tone_split_filters_[i].updateParas(tone_paras);
-        c_transient_split_on_[i] = std::abs(transient_paras.gain) > 1.0e-5;
-        c_tone_split_on_[i] = std::abs(tone_paras.gain) > 1.0e-5;
+
+        const auto supports_gain_offset = filter_paras_[i].filter_type == zldsp::filter::kPeak
+            || filter_paras_[i].filter_type == zldsp::filter::kLowShelf
+            || filter_paras_[i].filter_type == zldsp::filter::kHighShelf
+            || filter_paras_[i].filter_type == zldsp::filter::kTiltShelf
+            || filter_paras_[i].filter_type == zldsp::filter::kFlatTilt
+            || filter_paras_[i].filter_type == zldsp::filter::kFlatGain;
+        const auto transient_enabled = supports_gain_offset && std::abs(transient_paras.gain) > 1.0e-5;
+        const auto tone_enabled = supports_gain_offset && std::abs(tone_paras.gain) > 1.0e-5;
+        if (transient_enabled != c_transient_split_on_[i]) {
+            transient_split_filters_[i].reset();
+        }
+        if (tone_enabled != c_tone_split_on_[i]) {
+            tone_split_filters_[i].reset();
+        }
+        c_transient_split_on_[i] = transient_enabled;
+        c_tone_split_on_[i] = tone_enabled;
     }
 
     void Controller::prepareSplitFilters() {
@@ -646,15 +661,21 @@ namespace zlp {
 
     void Controller::prepareSplitBuffers(const std::array<double*, 2> main_pointers,
                                          const size_t num_samples) {
-        split_block_active_ = c_split_audition_mode_ != 0;
-        if (!split_block_active_) {
+        auto should_process_split = c_split_audition_mode_ != 0;
+        if (!should_process_split) {
             for (size_t i = 0; i < kBandNum; ++i) {
                 if (c_transient_split_on_[i] || c_tone_split_on_[i]) {
-                    split_block_active_ = true;
+                    should_process_split = true;
                     break;
                 }
             }
         }
+        if (should_process_split && !split_block_active_) {
+            // The detector is dormant while no component processing is needed.
+            // Reset on re-entry so an old envelope cannot create a stale mask.
+            split_detector_.reset();
+        }
+        split_block_active_ = should_process_split;
         if (!split_block_active_) {
             return;
         }
