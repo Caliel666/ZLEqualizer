@@ -52,6 +52,24 @@ namespace zlpanel {
         target_dragger_.getLAF().setDraggerShape(zlgui::dragger::DraggerLookAndFeel::kUpDownArrow);
         addChildComponent(target_dragger_);
 
+        transient_dragger_.setScale(kDraggerScale * kDraggerSizeMultiplier * .86f,
+                                    kDraggerScale * kDraggerPaddingMultiplier);
+        transient_dragger_.getButton().addMouseListener(this, false);
+        transient_dragger_.setXYEnabled(false, true);
+        transient_dragger_.getLAF().setDraggerShape(zlgui::dragger::DraggerLookAndFeel::kRound);
+        transient_dragger_.getLAF().setLabel("T");
+        transient_dragger_.getButton().setTooltip("Transient-only EQ offset. Double-click to reset.");
+        addChildComponent(transient_dragger_);
+
+        tone_dragger_.setScale(kDraggerScale * kDraggerSizeMultiplier * .86f,
+                               kDraggerScale * kDraggerPaddingMultiplier);
+        tone_dragger_.getButton().addMouseListener(this, false);
+        tone_dragger_.setXYEnabled(false, true);
+        tone_dragger_.getLAF().setDraggerShape(zlgui::dragger::DraggerLookAndFeel::kRound);
+        tone_dragger_.getLAF().setLabel("S");
+        tone_dragger_.getButton().setTooltip("Tone/sustain-only EQ offset. Double-click to reset.");
+        addChildComponent(tone_dragger_);
+
         for (size_t band = 0; band < zlp::kBandNum; ++band) {
             draggers_[band].setBroughtToFrontOnMouseClick(true);
             draggers_[band].getButton().addMouseListener(this, false);
@@ -91,6 +109,8 @@ namespace zlpanel {
             mouse_event_panel_.setBounds(bound);
             target_dragger_.setBounds(bound);
             side_dragger_.setBounds(bound);
+            transient_dragger_.setBounds(bound);
+            tone_dragger_.setBounds(bound);
             for (size_t band = 0; band < zlp::kBandNum; ++band) {
                 draggers_[band].setBounds(bound);
                 updateDraggerBound(band);
@@ -161,6 +181,12 @@ namespace zlpanel {
 
             target_dragger_.getLAF().setColour(base_.gui.getColourMap1(band));
             side_dragger_.getLAF().setColour(base_.gui.getColourMap1(band));
+            transient_dragger_.getLAF().setColour(base_.gui.getColourMap1(band).brighter(.45f));
+            tone_dragger_.getLAF().setColour(base_.gui.getColourMap1(band).darker(.35f));
+            transient_dragger_.setVisible(dragger_y_enabled_[band]);
+            tone_dragger_.setVisible(dragger_y_enabled_[band]);
+            transient_dragger_.toFront(true);
+            tone_dragger_.toFront(true);
 
             updateDraggerBound(band);
             updateDraggerAttachment(band);
@@ -173,6 +199,8 @@ namespace zlpanel {
         } else {
             target_dragger_.setVisible(false);
             side_dragger_.setVisible(false);
+            transient_dragger_.setVisible(false);
+            tone_dragger_.setVisible(false);
         }
         float_pop_panel_.updateBand();
     }
@@ -220,6 +248,8 @@ namespace zlpanel {
         if (band == base_.getSelectedBand()) {
             target_dragger_.setVisible(is_dynamic_on);
             side_dragger_.setVisible(is_dynamic_on);
+            transient_dragger_.setVisible(filter_status != zlp::FilterStatus::kOff && dragger_y_enabled_[band]);
+            tone_dragger_.setVisible(filter_status != zlp::FilterStatus::kOff && dragger_y_enabled_[band]);
             float_pop_panel_.setTargetVisible(is_dynamic_on);
         }
         is_dynamic_on_[band] = is_dynamic_on;
@@ -295,6 +325,8 @@ namespace zlpanel {
         if (band == base_.getSelectedBand()) {
             target_dragger_.setButtonArea(bound);
             side_dragger_.setButtonArea(side_bound);
+            transient_dragger_.setButtonArea(bound);
+            tone_dragger_.setButtonArea(bound);
         }
     }
 
@@ -386,6 +418,8 @@ namespace zlpanel {
 
     void DraggerPanel::mouseDown(const juce::MouseEvent& event) {
         solo_gain_drag_active_ = false;
+        transient_drag_active_ = false;
+        tone_drag_active_ = false;
         exit_solo_on_mouse_up_ = false;
         if (event.originalComponent == &mouse_event_panel_) {
             items_set_.deselectAll();
@@ -404,6 +438,16 @@ namespace zlpanel {
             }
         }
         if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
+            const auto suffix = std::to_string(band);
+            const auto is_transient_dragger = event.originalComponent == &(transient_dragger_.getButton());
+            const auto is_tone_dragger = event.originalComponent == &(tone_dragger_.getButton());
+            if (is_transient_dragger) {
+                split_drag_gain_at_start_ = getValue(p_ref_.parameters_, zlp::PTransientGain::kID + suffix);
+                transient_drag_active_ = true;
+            } else if (is_tone_dragger) {
+                split_drag_gain_at_start_ = getValue(p_ref_.parameters_, zlp::PToneGain::kID + suffix);
+                tone_drag_active_ = true;
+            }
             if (event.originalComponent == &(side_dragger_.getButton())) {
                 updateValue(p_ref_.parameters_.getParameter(zlp::PSideLink::kID + std::to_string(band)), 0.f);
             }
@@ -414,20 +458,27 @@ namespace zlpanel {
 
             if (event.originalComponent == &(draggers_[band].getButton())
                 || event.originalComponent == &(target_dragger_.getButton())
-                || event.originalComponent == &(side_dragger_.getButton())) {
+                || event.originalComponent == &(side_dragger_.getButton())
+                || is_transient_dragger || is_tone_dragger) {
 
                 const auto enter_solo_triggered = isEnterSoloTriggered(action_type, event.mods);
                 const auto exit_solo_triggered = isExitSoloTriggered(action_type, event.mods);
                 exit_solo_on_mouse_up_ = exit_solo_triggered;
 
                 if (enter_solo_triggered) {
-                    if (event.originalComponent == &(draggers_[band].getButton())
+                    if (is_transient_dragger) {
+                        p_ref_.getController().setSplitAuditionMode(1);
+                    } else if (is_tone_dragger) {
+                        p_ref_.getController().setSplitAuditionMode(2);
+                    } else if (event.originalComponent == &(draggers_[band].getButton())
                         || event.originalComponent == &(target_dragger_.getButton())) {
+                        p_ref_.getController().setSplitAuditionMode(0);
                         base_.setSoloWholeIdx(band);
                     } else if (event.originalComponent == &(side_dragger_.getButton())) {
                         base_.setSoloWholeIdx(zlp::kBandNum + band);
                     }
                 } else if (exit_solo_triggered) {
+                    p_ref_.getController().setSplitAuditionMode(0);
                     base_.setSoloWholeIdx(2 * zlp::kBandNum);
                 }
 
@@ -485,6 +536,8 @@ namespace zlpanel {
             p_ref_.getController().resetSoloGain();
             solo_gain_drag_active_ = false;
         }
+        transient_drag_active_ = false;
+        tone_drag_active_ = false;
         if (event.originalComponent == &mouse_event_panel_) {
             lasso_component_.endLasso();
             lasso_component_.setVisible(false);
@@ -492,6 +545,7 @@ namespace zlpanel {
                 base_.setSelectedBand(zlp::kBandNum);
             }
         } else if (exit_solo_on_mouse_up_) {
+            p_ref_.getController().setSplitAuditionMode(0);
             base_.setSoloWholeIdx(2 * zlp::kBandNum);
         }
         exit_solo_on_mouse_up_ = false;
@@ -500,11 +554,32 @@ namespace zlpanel {
     void DraggerPanel::mouseDrag(const juce::MouseEvent& event) {
         if (event.originalComponent == &mouse_event_panel_) {
             lasso_component_.dragLasso(event);
+            return;
+        }
+        if (transient_drag_active_ || tone_drag_active_) {
+            const auto band = base_.getSelectedBand();
+            if (band < zlp::kBandNum) {
+                const auto db_per_pixel = 2.f * max_db_ / solo_gain_drag_height_;
+                const auto offset = std::clamp(
+                    split_drag_gain_at_start_ - static_cast<float>(event.getDistanceFromDragStartY()) * db_per_pixel,
+                    -30.f, 30.f);
+                auto* parameter = p_ref_.parameters_.getParameter(
+                    (transient_drag_active_ ? zlp::PTransientGain::kID : zlp::PToneGain::kID) + std::to_string(band));
+                updateValue(parameter, offset);
+            }
         }
     }
 
     void DraggerPanel::mouseDoubleClick(const juce::MouseEvent& event) {
         if (const auto band = base_.getSelectedBand(); band < zlp::kBandNum) {
+            if (event.originalComponent == &(transient_dragger_.getButton())) {
+                updateValue(p_ref_.parameters_.getParameter(zlp::PTransientGain::kID + std::to_string(band)), 0.f);
+                return;
+            }
+            if (event.originalComponent == &(tone_dragger_.getButton())) {
+                updateValue(p_ref_.parameters_.getParameter(zlp::PToneGain::kID + std::to_string(band)), 0.f);
+                return;
+            }
             const auto action_type = event.mods.isRightButtonDown()
                 ? zlgui::MouseActionType::kRightDoubleClick
                 : zlgui::MouseActionType::kLeftDoubleClick;
