@@ -406,6 +406,22 @@ namespace zlp {
         static constexpr auto kDefaultV = 0.f;
     };
 
+    class PTransientFreqShift : public FloatParameters<PTransientFreqShift> {
+    public:
+        static constexpr auto kID = "transient_freq_shift";
+        static constexpr auto kName = "Transient Frequency Offset (semitones)";
+        inline static const auto kRange = juce::NormalisableRange<float>(-24.f, 24.f, .01f);
+        static constexpr auto kDefaultV = 0.f;
+    };
+
+    class PToneFreqShift : public FloatParameters<PToneFreqShift> {
+    public:
+        static constexpr auto kID = "tone_freq_shift";
+        static constexpr auto kName = "Tone Frequency Offset (semitones)";
+        inline static const auto kRange = juce::NormalisableRange<float>(-24.f, 24.f, .01f);
+        static constexpr auto kDefaultV = 0.f;
+    };
+
     class PTargetGain : public FloatParameters<PTargetGain> {
     public:
         static constexpr auto kID = "target_gain";
@@ -587,6 +603,7 @@ namespace zlp {
                        PFreq::get(suffix, true, true),
                        PGain::get(suffix), PTargetGain::get(suffix),
                        PTransientGain::get(suffix), PToneGain::get(suffix),
+                       PTransientFreqShift::get(suffix), PToneFreqShift::get(suffix),
                        PQ::get(suffix, true, true),
                        PDynamicON::get(suffix), PDynamicLearn::get(suffix),
                        PDynamicBypass::get(suffix), PDynamicRelative::get(suffix),
