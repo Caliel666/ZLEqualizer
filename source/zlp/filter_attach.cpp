@@ -72,13 +72,17 @@ namespace zlp {
             update_flag_.signal();
             whole_update_flag_.signal();
         } else if (parameter_ID.startsWith(PTransientGain::kID)) {
-            controller_.setSplitBandGains(idx_,
-                value * (scale_.load(std::memory_order::relaxed) / 100.f),
-                tone_gain_.load(std::memory_order::relaxed) * (scale_.load(std::memory_order::relaxed) / 100.f));
+            controller_.setSplitBandParameters(idx_,
+                value * (scale_.load(std::memory_order_relaxed) / 100.f),
+                tone_gain_.load(std::memory_order_relaxed) * (scale_.load(std::memory_order_relaxed) / 100.f),
+                transient_freq_shift_.load(std::memory_order_relaxed),
+                tone_freq_shift_.load(std::memory_order_relaxed));
         } else if (parameter_ID.startsWith(PToneGain::kID)) {
-            controller_.setSplitBandGains(idx_,
-                transient_gain_.load(std::memory_order::relaxed) * (scale_.load(std::memory_order::relaxed) / 100.f),
-                value * (scale_.load(std::memory_order::relaxed) / 100.f));
+            controller_.setSplitBandParameters(idx_,
+                transient_gain_.load(std::memory_order_relaxed) * (scale_.load(std::memory_order_relaxed) / 100.f),
+                value * (scale_.load(std::memory_order_relaxed) / 100.f),
+                transient_freq_shift_.load(std::memory_order_relaxed),
+                tone_freq_shift_.load(std::memory_order_relaxed));
         } else if (parameter_ID.startsWith(PTransientFreqShift::kID)) {
             controller_.setSplitBandParameters(idx_,
                 transient_gain_.load(std::memory_order_relaxed) * (scale_.load(std::memory_order_relaxed) / 100.f),
@@ -110,10 +114,12 @@ namespace zlp {
             }
         } else if (parameter_ID.startsWith(PGainScale::kID)) {
             const auto scale = value / 100.f;
-            empty_.setGain(std::clamp(gain_.load(std::memory_order::relaxed) * scale, -30.f, 30.f));
-            controller_.setSplitBandGains(idx_,
-                transient_gain_.load(std::memory_order::relaxed) * scale,
-                tone_gain_.load(std::memory_order::relaxed) * scale);
+            empty_.setGain(std::clamp(gain_.load(std::memory_order_relaxed) * scale, -30.f, 30.f));
+            controller_.setSplitBandParameters(idx_,
+                transient_gain_.load(std::memory_order_relaxed) * scale,
+                tone_gain_.load(std::memory_order_relaxed) * scale,
+                transient_freq_shift_.load(std::memory_order_relaxed),
+                tone_freq_shift_.load(std::memory_order_relaxed));
             update_flag_.signal();
             whole_update_flag_.signal();
         }
